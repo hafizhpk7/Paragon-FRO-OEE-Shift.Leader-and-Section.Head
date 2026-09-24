@@ -1,0 +1,619 @@
+/**
+ * 100% frontend mock data for the OEE prototype. Deterministic (seeded) so SSR
+ * and client hydration match. Values are intentionally varied per plant / zone /
+ * line / loss category (§5.3, §7 point 12) — no repeated "same numbers".
+ */
+
+import { SENSOR_SPEC, type LossCategory, type Status } from "./config";
+import { makeRng, pick, rand } from "./rng";
+
+export type Machine = {
+  id: string;
+  lineId: string;
+  name: string;
+  type: string;
+  status: Status;
+  oee: number;
+  availability: number;
+  performance: number;
+  quality: number;
+  mttr: number;
+  mtbf: number;
+  stopsThisShift: number;
+  sensors: {
+    key: string;
+    label: string;
+    group: string;
+    value: number;
+    unit: string;
+    warn: boolean;
+  }[];
+  currentStop?:
+    | {
+        severity: "CRITICAL" | "HIGH" | "MEDIUM";
+        fault: string;
+        startedAt: string;
+        elapsedMinutes: number;
+        lossPath: string;
+        downstream: string[];
+      }
+    | undefined;
+};
+
+export type Line = {
+  id: string;
+  zoneId: string;
+  plantId: string;
+  status: Status;
+  oee: number;
+  availability: number;
+  performance: number;
+  quality: number;
+  outputActual: number;
+  outputTarget: number;
+  runningMinutes: number;
+  speed: number;
+  stdSpeed: number;
+  sku: string;
+  po: string;
+  batch: string;
+  mpqTarget: number;
+  bottleneck: string;
+  fault?: string | undefined;
+  bay: { row: number; col: number };
+  machines: Machine[];
+};
+
+export type Zone = {
+  id: string;
+  name: string;
+  plantId: string;
+  oee: number;
+  availability: number;
+  performance: number;
+  quality: number;
+  lines: Line[];
+};
+
+export type Plant = {
+  id: string;
+  name: string;
+  block: string;
+  oee: number;
+  availability: number;
+  performance: number;
+  quality: number;
+  zones: Zone[];
+};
+
+export type Alarm = {
+  id: string;
+  lineId: string;
+  machineId: string;
+  issue: string;
+  start: string;
+  durationMinutes: number;
+  status: "OCCURRING" | "Resolved";
+  severity: "CRITICAL" | "HIGH" | "MEDIUM";
+};
+
+const MACHINE_TYPES = [
+  ["LTF", "Tube Filler"],
+  ["LWR", "Wrapper"],
+  ["LCT", "Cartoner"],
+  ["LCP", "Case Packer"],
+  ["LLB", "Labeller"],
+] as const;
+
+const SKUS = [
+  "SKU-1120 Tube 65g",
+  "SKU-2043 Sachet 12g",
+  "SKU-3310 Bottle 200ml",
+  "SKU-4187 Jar 250g",
+  "SKU-5209 Pouch 500g",
+];
+
+const FAULTS = [
+  "Bearing seizure on main drive",
+  "Conveyor jam at infeed",
+  "Servo overload trip",
+  "Film splice sensor fault",
+  "Vacuum pressure low",
+  "Cartoner glue temperature low",
+];
+
+const LINE_PREFIX: Record<string, string[]> = {
+  A: ["TUP", "BLP"],
+  B: ["BOP", "SAP"],
+  C: ["JRP", "PCP"],
+};
+
+function statusFor(seed: string, index: number, total: number): Status {
+  // majority running, 1-2 down, 1-2 slow, a few idle (§4.1.3)
+  if (index === 2) return "down";
+  if (index === total - 3) return "down";
+  if (index === 5 || index === total - 1) return "slow";
+  if (index === 7 || index === 9) return "idle";
+  return makeRng(seed)() > 0.92 ? "slow" : "running";
+}
+
+function buildMachines(line: { id: string; status: Status; plantId: string }): Machine[] {
+  const count = 2 + Math.floor(makeRng(`${line.id}-mcount`)() * 3); // 2-4
+  const machines: Machine[] = [];
+  for (let i = 0; i < count; i++) {
+    const spec = MACHINE_TYPES[i % MACHINE_TYPES.length] as readonly [string, string];
+    const id = `${spec[0]}${String(i + 1).padStart(2, "0")}`;
+    const seed = `${line.id}-${id}`;
+    const isCulprit = line.status === "down" && i === 0;
+    const status: Status = isCulprit
+      ? "down"
+      : line.status === "idle"
+        ? "idle"
+        : line.status === "slow" && i === 1
+          ? "slow"
+          : "running";
+    const availability = isCulprit ? rand(seed + "a", 38, 58, 1) : rand(seed + "a", 78, 97, 1);
+    const performance = rand(seed + "p", status === "slow" ? 58 : 74, 96, 1);
+    const quality = rand(seed + "q", 92, 99.6, 1);
+    machines.push({
+      id,
+      lineId: line.id,
+      name: id,
+      type: spec[1],
+      status,
+      availability,
+      performance,
+      quality,
+      oee: Math.round(((availability * performance * quality) / 10000) * 10) / 10,
+      mttr: rand(seed + "mttr", 12, 68, 0),
+      mtbf: rand(seed + "mtbf", 180, 1400, 0),
+      stopsThisShift: rand(seed + "stops", isCulprit ? 4 : 0, isCulprit ? 11 : 5, 0),
+      sensors: SENSOR_SPEC.map((s) => {
+        const value = rand(`${seed}-${s.key}`, s.min, s.max, s.decimals ?? 1);
+        return {
+          key: s.key,
+          label: s.label,
+          group: s.group,
+          unit: s.unit,
+          value,
+          warn: value > s.warnAbove,
+        };
+      }),
+      currentStop: isCulprit
+        ? {
+            severity: "CRITICAL",
+            fault: pick(seed + "fault", FAULTS),
+            startedAt: pick(seed + "time", ["06:12", "07:48", "09:05", "13:26", "21:34"]),
+            elapsedMinutes: rand(seed + "elapsed", 14, 96, 0),
+            lossPath: "Breakdown · Bearing seizure · Lubrication missed",
+            downstream: [`LWR0${((i + 1) % 3) + 1}`, `LCT0${((i + 2) % 3) + 1}`],
+          }
+        : undefined,
+    });
+  }
+  return machines;
+}
+
+function buildLine(plantId: string, zoneId: string, index: number, total: number): Line {
+  const prefixes = LINE_PREFIX[zoneId] ?? ["TUP"];
+  const prefix = (index === total - 1 ? prefixes[1] : prefixes[0]) ?? "TUP";
+  const id = `${prefix}${String(index + 1).padStart(2, "0")}`;
+  const seed = `${plantId}-${zoneId}-${id}`;
+  const status = statusFor(seed, index, total);
+  const availability =
+    status === "down" ? rand(seed + "a", 34, 56, 1) : rand(seed + "a", 76, 96, 1);
+  const performance = status === "slow" ? rand(seed + "p", 54, 68, 1) : rand(seed + "p", 72, 97, 1);
+  const quality = rand(seed + "q", 91, 99.5, 1);
+  const outputTarget = rand(seed + "ot", 8000, 21000, 0);
+  const base: Line = {
+    id,
+    zoneId,
+    plantId,
+    status,
+    availability,
+    performance,
+    quality,
+    oee: Math.round(((availability * performance * quality) / 10000) * 10) / 10,
+    outputTarget,
+    outputActual: Math.round(outputTarget * rand(seed + "oa", 0.52, 1.04, 3)),
+    runningMinutes: rand(seed + "rm", 180, 462, 0),
+    speed: rand(seed + "sp", 108, 198, 0),
+    stdSpeed: rand(seed + "std", 160, 200, 0),
+    sku: pick(seed + "sku", SKUS),
+    po: `PO-${rand(seed + "po", 41000, 49999, 0)}`,
+    batch: `B${rand(seed + "b", 2201, 2299, 0)}`,
+    mpqTarget: rand(seed + "mpq", 150, 200, 0),
+    bottleneck: "",
+    fault: status === "down" ? pick(seed + "lf", FAULTS) : undefined,
+    bay: { row: Math.floor(index / 5), col: index % 5 },
+    machines: [],
+  };
+  base.machines = buildMachines(base);
+  base.bottleneck = base.machines[0]?.id ?? "-";
+  return base;
+}
+
+function avg(values: number[]): number {
+  if (!values.length) return 0;
+  // §7 point 8: simple average for the prototype, no weighting.
+  return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
+}
+
+function buildZone(plantId: string, zoneId: "A" | "B" | "C"): Zone {
+  const total = 15;
+  const lines: Line[] = [];
+  for (let i = 0; i < total; i++) lines.push(buildLine(plantId, zoneId, i, total));
+  return {
+    id: zoneId,
+    name: `Zone ${zoneId}`,
+    plantId,
+    lines,
+    oee: avg(lines.map((l) => l.oee)),
+    availability: avg(lines.map((l) => l.availability)),
+    performance: avg(lines.map((l) => l.performance)),
+    quality: avg(lines.map((l) => l.quality)),
+  };
+}
+
+function buildPlant(id: string, name: string, block: string): Plant {
+  const zones = (["A", "B", "C"] as const).map((z) => buildZone(id, z));
+  return {
+    id,
+    name,
+    block,
+    zones,
+    oee: avg(zones.map((z) => z.oee)),
+    availability: avg(zones.map((z) => z.availability)),
+    performance: avg(zones.map((z) => z.performance)),
+    quality: avg(zones.map((z) => z.quality)),
+  };
+}
+
+export const PLANTS: Plant[] = [
+  buildPlant("J1", "Jatake 1", "Blok 3"),
+  buildPlant("J2", "Jatake 2", "Blok 7"),
+  buildPlant("J4", "Jatake 4", "Blok 12"),
+];
+
+/** TODO/confirm (§7 point 9): default plant hardcoded for the prototype. */
+export const DEFAULT_PLANT_ID = "J2";
+export const DEFAULT_ZONE_ID = "A";
+
+export const GROUP = {
+  oee: avg(PLANTS.map((p) => p.oee)),
+  availability: avg(PLANTS.map((p) => p.availability)),
+  performance: avg(PLANTS.map((p) => p.performance)),
+  quality: avg(PLANTS.map((p) => p.quality)),
+};
+
+export function getPlant(plantId: string): Plant | undefined {
+  return PLANTS.find((p) => p.id === plantId);
+}
+
+export function getZone(plantId: string, zoneId: string): Zone | undefined {
+  return getPlant(plantId)?.zones.find((z) => z.id === zoneId);
+}
+
+export function getLine(plantId: string, zoneId: string, lineId: string): Line | undefined {
+  return getZone(plantId, zoneId)?.lines.find((l) => l.id === lineId);
+}
+
+export function getMachine(
+  plantId: string,
+  zoneId: string,
+  lineId: string,
+  machineId: string,
+): Machine | undefined {
+  return getLine(plantId, zoneId, lineId)?.machines.find((m) => m.id === machineId);
+}
+
+export function allLines(plantId?: string, zoneIds?: string[]): Line[] {
+  const plants = plantId ? PLANTS.filter((p) => p.id === plantId) : PLANTS;
+  return plants.flatMap((p) =>
+    p.zones
+      .filter((z) => !zoneIds || zoneIds.length === 0 || zoneIds.includes(z.id))
+      .flatMap((z) => z.lines),
+  );
+}
+
+export function allSkus(lines: Line[]): string[] {
+  return Array.from(new Set(lines.map((l) => l.sku))).sort();
+}
+
+/* ------------------------------------------------------------------ alarms */
+
+export function plantAlarms(plant: Plant): Alarm[] {
+  const alarms: Alarm[] = [];
+  plant.zones.forEach((z) =>
+    z.lines.forEach((l) => {
+      if (l.status === "down" || l.status === "slow") {
+        const m = l.machines[0];
+        const seed = `${plant.id}-${l.id}-alarm`;
+        alarms.push({
+          id: `${l.id}-1`,
+          lineId: l.id,
+          machineId: m?.id ?? "-",
+          issue: l.fault ?? "Speed below standard",
+          start: pick(seed + "s", ["05:41", "06:12", "07:48", "09:05", "11:22", "13:26"]),
+          durationMinutes: rand(seed + "d", 8, 124, 0),
+          status: l.status === "down" ? "OCCURRING" : "Resolved",
+          severity: l.status === "down" ? "CRITICAL" : "MEDIUM",
+        });
+      }
+    }),
+  );
+  return alarms.sort((a, b) => (a.status === b.status ? 0 : a.status === "OCCURRING" ? -1 : 1));
+}
+
+export function lineAlarms(line: Line): Alarm[] {
+  const seed = `${line.id}-la`;
+  const list: Alarm[] = [];
+  if (line.fault) {
+    list.push({
+      id: `${line.id}-active`,
+      lineId: line.id,
+      machineId: line.machines[0]?.id ?? "-",
+      issue: line.fault,
+      start: "06:12",
+      durationMinutes: rand(seed + "1", 12, 92, 0),
+      status: "OCCURRING",
+      severity: "CRITICAL",
+    });
+  }
+  list.push({
+    id: `${line.id}-r1`,
+    lineId: line.id,
+    machineId: line.machines[1]?.id ?? "-",
+    issue: pick(seed + "i", FAULTS),
+    start: "04:55",
+    durationMinutes: rand(seed + "2", 4, 38, 0),
+    status: "Resolved",
+    severity: "MEDIUM",
+  });
+  return list;
+}
+
+/* ------------------------------------------------------------------ trends */
+
+export type Point = { label: string; [key: string]: number | string };
+
+export function trendSeries(
+  seed: string,
+  buckets: string[],
+  keys: string[],
+  base: number,
+  spread: number,
+): Point[] {
+  return buckets.map((label, i) => {
+    const point: Point = { label };
+    keys.forEach((k, ki) => {
+      const wave = Math.sin((i + ki * 2) / 1.9) * spread * 0.4;
+      point[k] =
+        Math.round((base + wave + rand(`${seed}-${k}-${i}`, -spread, spread, 1)) * 10) / 10;
+    });
+    return point;
+  });
+}
+
+export function bucketsFor(resolutionMinutes: number, days: number): string[] {
+  if (resolutionMinutes <= 15) {
+    return Array.from(
+      { length: 12 },
+      (_, i) =>
+        `${String(6 + Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 15).padStart(2, "0")}`,
+    );
+  }
+  if (resolutionMinutes <= 60) {
+    return Array.from({ length: 8 }, (_, i) => `${String(6 + i).padStart(2, "0")}:00`);
+  }
+  if (resolutionMinutes <= 720) {
+    return Array.from(
+      { length: Math.max(4, days * 2) },
+      (_, i) => `D${Math.floor(i / 2) + 1} ${i % 2 === 0 ? "AM" : "PM"}`,
+    );
+  }
+  return Array.from({ length: Math.max(5, Math.min(days, 14)) }, (_, i) => `D${i + 1}`);
+}
+
+/* -------------------------------------------------------------- loss anatomy */
+
+export type LossNode = {
+  id: string;
+  label: string;
+  minutes: number;
+  occurrences: number;
+  children?: LossNode[];
+  /** Rank by machines (§7 point 3) */
+  machines: { id: string; minutes: number; occurrences: number }[];
+};
+
+const LOSS_TREE_SHAPE: Record<string, Record<string, string[]>> = {
+  Breakdown: {
+    "Bearing seizure": ["Lubrication missed", "Contamination"],
+    "Conveyor Jam": ["Guide misalignment", "Product overfeed"],
+    "Power Outage": ["Utility trip"],
+  },
+  "Minor Stop": {
+    "Film splice": ["Roll end late", "Splice tape weak"],
+    "Sensor blocked": ["Dust build-up", "Reflector drift"],
+    "Cap jam": ["Cap orientation"],
+  },
+  "Setup + Idle": {
+    "SKU changeover": ["Tooling search", "First-article wait"],
+    "Idle, no order": ["Plan gap"],
+    "Waiting material": ["Late supply", "QA hold"],
+  },
+  "Speed Loss": {
+    "Reduced speed setpoint": ["Operator derate", "Material variance"],
+    "Micro slowdowns": ["Air pressure dips"],
+  },
+  Reject: {
+    "Seal defect": ["Jaw temperature", "Film wrinkle"],
+    "Fill weight out of spec": ["Nozzle wear", "Product viscosity"],
+    "Print defect": ["Ribbon low"],
+  },
+  Rework: {
+    "Label reposition": ["Applicator drift"],
+    "Repack case": ["Case damage"],
+  },
+  "Planned Downtime": {
+    "Preventive maintenance": ["Weekly PM"],
+    "Cleaning / sanitation": ["CIP cycle"],
+  },
+};
+
+function nodeMachines(seed: string, minutes: number) {
+  return ["LTF01", "LWR02", "LCT01", "LCP03", "LLB01"]
+    .map((id) => ({
+      id,
+      minutes: Math.max(1, Math.round(minutes * rand(`${seed}-${id}`, 0.05, 0.42, 3))),
+      occurrences: rand(`${seed}-${id}-o`, 1, 14, 0),
+    }))
+    .sort((a, b) => b.minutes - a.minutes);
+}
+
+/** Independent, non-uniform dataset per scope + category (§7 point 12). */
+export function lossTree(scopeSeed: string): LossNode[] {
+  return Object.entries(LOSS_TREE_SHAPE).map(([category, children]) => {
+    const catSeed = `${scopeSeed}-${category}`;
+    const kids = Object.entries(children).map(([child, grandChildren], ci) => {
+      const childSeed = `${catSeed}-${child}-${ci}`;
+      const grandKids = grandChildren.map((gc, gi) => {
+        const gSeed = `${childSeed}-${gc}-${gi}`;
+        const minutes = rand(gSeed, 4, 58, 0);
+        return {
+          id: gSeed,
+          label: gc,
+          minutes,
+          occurrences: rand(gSeed + "o", 1, 16, 0),
+          machines: nodeMachines(gSeed, minutes),
+        } satisfies LossNode;
+      });
+      const minutes =
+        grandKids.reduce((a, b) => a + b.minutes, 0) + rand(childSeed + "x", 2, 24, 0);
+      return {
+        id: childSeed,
+        label: child,
+        minutes,
+        occurrences:
+          grandKids.reduce((a, b) => a + b.occurrences, 0) + rand(childSeed + "o", 1, 6, 0),
+        children: grandKids,
+        machines: nodeMachines(childSeed, minutes),
+      } satisfies LossNode;
+    });
+    const minutes = kids.reduce((a, b) => a + b.minutes, 0);
+    return {
+      id: catSeed,
+      label: category,
+      minutes,
+      occurrences: kids.reduce((a, b) => a + b.occurrences, 0),
+      children: kids,
+      machines: nodeMachines(catSeed, minutes),
+    } satisfies LossNode;
+  });
+}
+
+export function findNode(nodes: LossNode[], id: string): LossNode | undefined {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    const hit = n.children ? findNode(n.children, id) : undefined;
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** Waterfall per BR 2.3.3 with the single label change "Unutilized" → "Idle, no order". */
+export function waterfall(scopeSeed: string) {
+  const calendar = 1440;
+  const unscheduled = rand(scopeSeed + "un", 120, 260, 0);
+  const idleNoOrder = rand(scopeSeed + "id", 40, 140, 0); // was "Unutilized"
+  const notAvailable = rand(scopeSeed + "na", 20, 70, 0);
+  const planned = rand(scopeSeed + "pd", 30, 90, 0);
+  const breakdown = rand(scopeSeed + "bd", 25, 130, 0);
+  const setup = rand(scopeSeed + "st", 15, 75, 0);
+  const minorStop = rand(scopeSeed + "ms", 10, 60, 0);
+  const speedLoss = rand(scopeSeed + "sl", 20, 95, 0);
+  const reject = rand(scopeSeed + "rj", 8, 45, 0);
+  const rework = rand(scopeSeed + "rw", 4, 26, 0);
+
+  const scheduled = calendar - unscheduled - notAvailable - planned;
+  const gross = scheduled - breakdown - idleNoOrder - setup;
+  const net = gross - minorStop - speedLoss;
+  const effective = net - reject - rework;
+
+  return {
+    milestones: [
+      { label: "Calendar Time", value: calendar },
+      { label: "Scheduled Time", value: scheduled },
+      { label: "Gross Operating Time", value: gross },
+      { label: "Net Operating Time", value: net },
+      { label: "Effective Time", value: effective },
+    ],
+    losses: [
+      { label: "Unscheduled", value: unscheduled, group: "Loading" },
+      { label: "Not Available", value: notAvailable, group: "Loading" },
+      { label: "Planned Downtime", value: planned, group: "Loading" },
+      { label: "Breakdown", value: breakdown, group: "Availability" },
+      { label: "Idle, no order", value: idleNoOrder, group: "Availability" },
+      { label: "Setup", value: setup, group: "Availability" },
+      { label: "Minor Stop", value: minorStop, group: "Performance" },
+      { label: "Speed Loss", value: speedLoss, group: "Performance" },
+      { label: "Reject", value: reject, group: "Quality" },
+      { label: "Rework", value: rework, group: "Quality" },
+    ],
+  };
+}
+
+export function biggestLoss(scopeSeed: string) {
+  const tree = lossTree(scopeSeed);
+  return tree.reduce((a, b) => (b.minutes > a.minutes ? b : a));
+}
+
+/* --------------------------------------------------- comparison (new panel) */
+
+export function comparison(scopeSeed: string, lines: Line[]) {
+  const before = rand(scopeSeed + "cb", 58, 82, 1);
+  const after = rand(scopeSeed + "ca", 58, 84, 1);
+  return {
+    before,
+    after,
+    delta: Math.round((after - before) * 10) / 10,
+    components: (["Availability", "Performance", "Quality"] as const).map((label) => ({
+      label,
+      delta: rand(`${scopeSeed}-${label}`, -6.5, 7.5, 1),
+    })),
+    byLine: lines.slice(0, 8).map((l) => ({
+      label: l.id,
+      delta: rand(`${scopeSeed}-${l.id}-cmp`, -9, 9, 1),
+    })),
+  };
+}
+
+/* ------------------------------------------ shift performance (§6, bonus) */
+
+export function shiftPerformance(plantId: string) {
+  const leaders = ["Andi P.", "Bagus S.", "Citra W.", "Dedi K.", "Eka R."];
+  return {
+    opeByLeader: [
+      ...leaders.map((name) => ({
+        name,
+        ope: rand(`${plantId}-${name}-ope`, 48, 88, 1),
+        batches: rand(`${plantId}-${name}-b`, 12, 48, 0),
+      })),
+      // TODO/confirm (§7 point 11): "Non Shift" and "Unmap" have no final definition.
+      { name: "Non Shift", ope: rand(plantId + "ns", 20, 45, 1), batches: 0 },
+      { name: "Unmap", ope: rand(plantId + "um", 10, 30, 1), batches: 0 },
+    ],
+    weekly: Array.from({ length: 7 }, (_, i) => ({
+      label: `D${i + 1}`,
+      "Shift 1": rand(`${plantId}-w1-${i}`, 58, 86, 1),
+      "Shift 2": rand(`${plantId}-w2-${i}`, 54, 84, 1),
+      "Shift 3": rand(`${plantId}-w3-${i}`, 50, 80, 1),
+      "Non Shift": rand(`${plantId}-w4-${i}`, 24, 48, 1),
+    })),
+    operators: leaders.map((name) => ({
+      name,
+      output: rand(`${plantId}-${name}-out`, 6200, 18400, 0),
+    })),
+  };
+}
