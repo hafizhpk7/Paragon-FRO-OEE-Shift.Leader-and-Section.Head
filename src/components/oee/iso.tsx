@@ -201,6 +201,7 @@ export function IsoBlock({
   onMouseLeave,
   onMouseMove,
   dim,
+  hovered,
   className,
 }: {
   x: number;
@@ -215,6 +216,7 @@ export function IsoBlock({
   onMouseLeave?: (e: React.MouseEvent<SVGGElement>) => void;
   onMouseMove?: (e: React.MouseEvent<SVGGElement>) => void;
   dim?: boolean;
+  hovered?: boolean;
   className?: string;
 }) {
   const t1 = iso(x, y, h, s);
@@ -225,6 +227,8 @@ export function IsoBlock({
   const b3 = iso(x + w, y + d, 0, s);
   const b2 = iso(x + w, y, 0, s);
   const pts = (p: { x: number; y: number }[]) => p.map((q) => `${q.x},${q.y}`).join(" ");
+  const isInteractive = Boolean(onClick || onMouseEnter || onMouseMove);
+
   return (
     <g
       onClick={onClick}
@@ -232,16 +236,35 @@ export function IsoBlock({
       onMouseLeave={onMouseLeave}
       onMouseMove={onMouseMove}
       className={cn(
-        onClick || onMouseEnter || onMouseMove
-          ? "cursor-pointer transition-opacity hover:opacity-85"
-          : undefined,
+        isInteractive &&
+          "cursor-pointer transition-all duration-150 hover:brightness-115 hover:[&>polygon]:stroke hover:[&>polygon]:stroke-white/70 hover:[&>polygon]:stroke-[0.8]",
+        hovered &&
+          "brightness-120 [&>polygon]:stroke [&>polygon]:stroke-white/80 [&>polygon]:stroke-[1]",
         className,
       )}
+      style={hovered ? { filter: "brightness(1.18)" } : undefined}
       opacity={dim ? 0.5 : 1}
     >
-      <polygon points={pts([t1, t2, t3, t4])} fill={color} />
-      <polygon points={pts([t4, t3, b3, b4])} fill={color} style={{ filter: "brightness(0.78)" }} />
-      <polygon points={pts([t2, t3, b3, b2])} fill={color} style={{ filter: "brightness(0.6)" }} />
+      <polygon
+        points={pts([t1, t2, t3, t4])}
+        fill={color}
+        stroke={hovered ? "rgba(255,255,255,0.7)" : undefined}
+        strokeWidth={hovered ? 0.75 : undefined}
+      />
+      <polygon
+        points={pts([t4, t3, b3, b4])}
+        fill={color}
+        style={{ filter: "brightness(0.78)" }}
+        stroke={hovered ? "rgba(255,255,255,0.55)" : undefined}
+        strokeWidth={hovered ? 0.75 : undefined}
+      />
+      <polygon
+        points={pts([t2, t3, b3, b2])}
+        fill={color}
+        style={{ filter: "brightness(0.6)" }}
+        stroke={hovered ? "rgba(255,255,255,0.4)" : undefined}
+        strokeWidth={hovered ? 0.75 : undefined}
+      />
     </g>
   );
 }
