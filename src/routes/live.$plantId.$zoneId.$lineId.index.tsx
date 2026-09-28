@@ -10,6 +10,7 @@ import {
   MapHoverTooltip,
   type MapTooltipInfo,
 } from "@/components/oee/iso";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ComparisonLabel,
   Delta,
@@ -93,8 +94,8 @@ function LineDetail() {
         onPeriod={setPeriod}
         back={{ label: zone.name, to: "/live/$plantId/$zoneId", params: { plantId, zoneId } }}
       />
-      <main className="flex flex-1 flex-col gap-3 p-4">
-        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 pb-12 min-w-0 max-w-full overflow-x-hidden">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
           <KpiCard
             label="Line OEE"
             value={liveLine.oee.toFixed(1)}
@@ -274,55 +275,94 @@ function LineDetail() {
           </ul>
         </Panel>
 
-        <div className="grid min-h-[340px] flex-1 auto-rows-fr items-stretch gap-3 lg:grid-cols-3">
-          <Panel title="OEE trend" bodyClassName="relative min-h-[250px] h-full w-full flex-1">
-            <TrendChart data={oeeTrend} keys={["OEE"]} reference={75} />
+        {/* Trend Charts Section */}
+        <div className="grid w-full shrink-0 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <Panel
+            title="OEE trend"
+            className="h-[340px] w-full min-w-0"
+            bodyClassName="h-[270px] w-full p-2"
+          >
+            <div className="h-[250px] w-full">
+              <TrendChart data={oeeTrend} keys={["OEE"]} reference={75} height={250} />
+            </div>
           </Panel>
           <Panel
             title="Output trend"
             subtitle="Cumulative %, resets on PO/batch change"
-            bodyClassName="relative min-h-[250px] h-full w-full flex-1"
+            className="h-[340px] w-full min-w-0"
+            bodyClassName="h-[270px] w-full p-2"
           >
-            <TrendChart data={outputTrend} keys={["Cumulative %", "Plan"]} />
+            <div className="h-[250px] w-full">
+              <TrendChart data={outputTrend} keys={["Cumulative %", "Plan"]} height={250} />
+            </div>
           </Panel>
           <Panel
             title="Line speed"
             subtitle={`Standard ${line.stdSpeed} ppm`}
-            bodyClassName="relative min-h-[250px] h-full w-full flex-1"
+            className="h-[340px] w-full min-w-0"
+            bodyClassName="h-[270px] w-full p-2"
           >
-            <TrendChart data={speedTrend} keys={["Speed"]} reference={line.stdSpeed} />
+            <div className="h-[250px] w-full">
+              <TrendChart
+                data={speedTrend}
+                keys={["Speed"]}
+                reference={line.stdSpeed}
+                height={250}
+              />
+            </div>
           </Panel>
         </div>
 
-        <Panel title="Machines" subtitle="Open a machine page for sensor detail and current stop">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {line.machines.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() =>
-                  navigate({
-                    to: "/live/$plantId/$zoneId/$lineId/$machineId",
-                    params: { plantId, zoneId, lineId, machineId: m.id },
-                  })
-                }
-                className="flex flex-col gap-1.5 rounded-lg border border-border p-3 text-left transition-colors hover:border-primary"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-sm font-semibold">{m.id}</span>
-                  <StatusPill status={m.status} />
-                </div>
-                <p className="text-[11px] text-muted-foreground">{m.type}</p>
-                <p className="font-mono text-xs">
-                  OEE {m.oee.toFixed(1)}% · MTTR {m.mttr}m · MTBF {m.mtbf}m
-                </p>
-                <span className="mt-1 text-[11px] font-medium text-primary">
-                  Open machine page →
-                </span>
-              </button>
-            ))}
-          </div>
-        </Panel>
+        {/* Machines Section */}
+        <Card className="h-auto w-full min-w-0 shrink-0 overflow-visible rounded-lg border border-border bg-surface shadow-xs">
+          <CardHeader className="border-b border-border px-4 py-3">
+            <CardTitle className="text-sm font-semibold tracking-tight text-foreground">
+              Machines
+            </CardTitle>
+            <CardDescription className="text-[11px] text-muted-foreground">
+              Open a machine page for sensor detail and current stop
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="h-auto overflow-visible p-4 pb-6">
+            <div className="grid h-auto w-full min-w-0 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {line.machines.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      to: "/live/$plantId/$zoneId/$lineId/$machineId",
+                      params: { plantId, zoneId, lineId, machineId: m.id },
+                    })
+                  }
+                  className="group flex h-auto min-h-[116px] w-full min-w-0 flex-col justify-between gap-2.5 rounded-lg border border-border bg-muted/50 p-4 text-left transition-colors hover:border-primary hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-muted/30 dark:hover:bg-muted/60"
+                >
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="truncate font-mono text-sm font-semibold">{m.id}</span>
+                    <span className="shrink-0">
+                      <StatusPill status={m.status} />
+                    </span>
+                  </div>
+                  <p className="truncate text-[11px] text-muted-foreground">{m.type}</p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs leading-relaxed text-foreground/90">
+                    <span>OEE {m.oee.toFixed(1)}%</span>
+                    <span className="text-muted-foreground/60" aria-hidden="true">
+                      ·
+                    </span>
+                    <span>MTTR {m.mttr}m</span>
+                    <span className="text-muted-foreground/60" aria-hidden="true">
+                      ·
+                    </span>
+                    <span>MTBF {m.mtbf}m</span>
+                  </div>
+                  <span className="pt-1 text-[11px] font-medium text-primary group-hover:underline">
+                    Open machine page →
+                  </span>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </main>
     </div>
   );

@@ -64,13 +64,13 @@ function ShiftPerformancePage() {
         meta="Bonus page · built from BR Section Head 3.1-3.8"
       />
       <FilterBar />
-      <main className="flex flex-1 flex-col gap-3 p-4">
+      <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
         <p className="rounded-md border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
           Marked “Outside Scope” in the URS but specified in BR Section Head — included here as a
           low priority preview only (§6).
         </p>
 
-        <div className="grid gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiCard label="Shift leaders" value={data.opeByLeader.length - 2} />
           <KpiCard
             label="Best OPE"
@@ -88,7 +88,7 @@ function ShiftPerformancePage() {
           />
         </div>
 
-        <div className="grid min-h-[640px] flex-1 auto-rows-fr items-stretch gap-3 lg:grid-cols-2">
+        <div className="grid w-full flex-1 items-stretch gap-3 grid-cols-1 lg:grid-cols-2">
           <Panel
             title="OPE by Shift Leader"
             subtitle="“Non Shift” and “Unmap” shown as plain extra bars"

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Menu } from "lucide-react";
 import { type ReactNode } from "react";
 
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/lib/oee/config";
 import { PERIODS, type PeriodId } from "@/lib/oee/filters";
 import { comparisonContext, useLiveClock } from "@/lib/oee/live-display";
+import { useApp } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -336,49 +337,62 @@ export function PageHeader({
   back?: { label: string; to: string; params?: Record<string, string> };
   children?: ReactNode;
 }) {
+  const { toggleMobileSidebar } = useApp();
   const liveTime = useLiveClock(period ?? "today");
   const displayMeta = period === "live" ? (liveTime ?? meta ?? "Live Monitor") : meta;
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-background/90 px-4 py-3 backdrop-blur">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            {back && (
-              <Link
-                to={back.to}
-                params={back.params as never}
-                className="rounded-md border border-border bg-surface px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                ‹ Back to {back.label}
-              </Link>
-            )}
-            <h1 className="truncate text-lg font-semibold tracking-tight">{title}</h1>
+    <header className="sticky top-0 z-20 w-full min-w-0 border-b border-border bg-background/90 px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={toggleMobileSidebar}
+            className="inline-flex lg:hidden items-center justify-center rounded-md border border-border bg-surface p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-95 shrink-0"
+            aria-label="Toggle navigation menu"
+          >
+            <Menu className="size-5" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              {back && (
+                <Link
+                  to={back.to}
+                  params={back.params as never}
+                  className="rounded-md border border-border bg-surface px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  ‹ Back to {back.label}
+                </Link>
+              )}
+              <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">
+                {title}
+              </h1>
+            </div>
+            <nav className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] sm:text-[11px] text-muted-foreground">
+              {crumbs.map((c, i) => (
+                <span key={`${c.label}-${i}`} className="flex items-center gap-1">
+                  {i > 0 && <span className="opacity-50">›</span>}
+                  {c.to ? (
+                    <Link
+                      to={c.to}
+                      params={c.params as never}
+                      className="hover:text-foreground hover:underline"
+                    >
+                      {c.label}
+                    </Link>
+                  ) : (
+                    <span>{c.label}</span>
+                  )}
+                </span>
+              ))}
+            </nav>
           </div>
-          <nav className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-            {crumbs.map((c, i) => (
-              <span key={`${c.label}-${i}`} className="flex items-center gap-1">
-                {i > 0 && <span className="opacity-50">›</span>}
-                {c.to ? (
-                  <Link
-                    to={c.to}
-                    params={c.params as never}
-                    className="hover:text-foreground hover:underline"
-                  >
-                    {c.label}
-                  </Link>
-                ) : (
-                  <span>{c.label}</span>
-                )}
-              </span>
-            ))}
-          </nav>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {displayMeta && (
             <span
               suppressHydrationWarning
-              className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 font-mono text-[11px] text-muted-foreground shadow-xs"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 font-mono text-[10px] sm:text-[11px] text-muted-foreground shadow-xs shrink-0"
             >
               {period === "live" && (
                 <span className="relative flex h-2 w-2" title="Live clock active">

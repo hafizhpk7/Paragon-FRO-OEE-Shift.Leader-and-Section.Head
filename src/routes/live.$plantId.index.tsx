@@ -81,28 +81,28 @@ function PlantView() {
         meta="Week 32 · 05-Aug 14:22"
         back={{ label: "Multi Plant", to: "/live" }}
       />
-      <main className="flex flex-1 flex-col gap-3 p-4">
+      <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
         <div
           className={cn(
-            "flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface p-4 transition-colors",
+            "flex flex-col lg:flex-row items-stretch lg:items-center gap-4 rounded-lg border border-border bg-surface p-3 sm:p-4 transition-colors",
             liveState.isUpdating && "border-primary/50 shadow-[0_0_12px_rgba(59,130,246,0.15)]",
           )}
         >
-          <div className="flex items-center gap-4 pr-4">
-            <div className="flex flex-col items-center">
+          <div className="flex flex-wrap sm:flex-nowrap items-center justify-center sm:justify-start gap-4 pb-3 lg:pb-0 lg:pr-4 border-b lg:border-b-0 lg:border-r border-border/60">
+            <div className="flex flex-col items-center shrink-0">
               <Donut value={liveState.plant.oee} size={92} label="Plant OEE" />
               <div className="mt-1 flex flex-col items-center text-center">
                 <Delta value={liveState.plantDeltas.oee} />
                 <ComparisonLabel period={period} />
               </div>
             </div>
-            <div className="grid w-44 gap-1.5">
+            <div className="grid w-full sm:w-44 gap-1.5 min-w-36">
               <MetricBar label="Availability" value={liveState.plant.availability} />
               <MetricBar label="Performance" value={liveState.plant.performance} />
               <MetricBar label="Quality" value={liveState.plant.quality} />
             </div>
           </div>
-          <div className="grid flex-1 gap-3 sm:grid-cols-3">
+          <div className="grid w-full flex-1 gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
             {plant.zones.map((z) => {
               const liveZone = liveState.zones[z.id] ?? z;
               const deltaVal = liveState.zoneDeltas[z.id] ?? 0;
@@ -140,15 +140,18 @@ function PlantView() {
           </div>
         </div>
 
-        <div className="grid flex-1 auto-rows-fr gap-3 lg:grid-cols-[1.6fr_1fr]">
+        <div className="grid flex-1 w-full gap-3 lg:grid-cols-[1.6fr_1fr]">
           <Panel
             title="Zone map"
             subtitle="Click a zone to open Zone View"
-            bodyClassName="relative p-0"
+            bodyClassName="relative p-0 overflow-hidden"
           >
-            <div ref={mapContainerRef} className="relative h-full w-full flex-1">
+            <div
+              ref={mapContainerRef}
+              className="relative h-full w-full min-h-[400px] md:min-h-[500px] flex-1"
+            >
               <Compass />
-              <ZoomableMap className="min-h-[380px] flex-1">
+              <ZoomableMap className="min-h-[400px] md:min-h-[500px] flex-1">
                 <IsoScene viewBox="-270 -115 560 440">
                   <IsoGround cols={plant.zones.length * 2.5 + 0.8} rows={12 * 0.72 + 0.8} s={32} />
                   {plant.zones.map((z, zi) =>
@@ -234,10 +237,10 @@ function PlantView() {
           <Panel
             title="Alarms"
             subtitle={`${occurring} occurring · ${alarms.length - occurring} resolved this shift`}
-            bodyClassName="p-0"
+            bodyClassName="p-0 overflow-hidden"
           >
-            <div className="h-full min-h-[380px] overflow-auto">
-              <table className="w-full text-[11px]">
+            <div className="h-full min-h-[380px] w-full min-w-0 overflow-x-auto overflow-y-auto">
+              <table className="w-full min-w-[480px] text-[11px]">
                 <thead className="sticky top-0 bg-surface text-left text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-3 py-2 font-medium">Line</th>

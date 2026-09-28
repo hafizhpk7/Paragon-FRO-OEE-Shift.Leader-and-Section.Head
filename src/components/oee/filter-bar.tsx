@@ -121,7 +121,7 @@ export function FilterBar() {
   const resOptions = allowedResolutions(filters.span);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background/70 px-4 py-2">
+    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background/70 px-3 sm:px-4 py-2 w-full min-w-0">
       <SelectPill
         label="Span"
         value={filters.span}
@@ -168,7 +168,7 @@ export function FilterBar() {
         ]}
         onChange={(sku) => setFilters({ sku })}
       />
-      <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+      <span className="sm:ml-auto font-mono text-[10px] text-muted-foreground shrink-0">
         {scope.lines.length} lines in scope
       </span>
     </div>

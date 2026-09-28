@@ -80,10 +80,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "OEE FRO Dashboard Prototype" },
+      { title: "Paragon OEE FRO Dashboard Prototype" },
       {
         name: "description",
-        content: "Clickable OEE dashboard prototype for Shift Leader and Section Head.",
+        content: "Clickable Paragon OEE FRO dashboard prototype for Shift Leader and Section Head.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -138,12 +138,12 @@ function DashboardShell() {
   const { isCollapsed } = useApp();
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen w-full min-w-0 max-w-full overflow-x-hidden bg-background text-foreground">
       <AppSidebar />
       <div
         className={cn(
-          "flex min-h-screen min-w-0 flex-1 flex-col transition-[margin] duration-300",
-          isCollapsed ? "ml-20" : "ml-64",
+          "flex min-h-screen min-w-0 max-w-full flex-1 flex-col transition-[margin] duration-300 ml-0",
+          isCollapsed ? "lg:ml-20" : "lg:ml-64",
         )}
       >
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}

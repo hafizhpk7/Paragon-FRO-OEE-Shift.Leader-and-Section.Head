@@ -80,8 +80,8 @@ function MachineDetail() {
           params: { plantId, zoneId, lineId },
         }}
       />
-      <main className="flex flex-1 flex-col gap-3 p-4">
-        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
           <KpiCard
             label="Machine OEE"
             value={liveMachine.oee.toFixed(1)}
@@ -122,7 +122,7 @@ function MachineDetail() {
           />
         </div>
 
-        <div className="grid flex-1 auto-rows-fr gap-3 lg:grid-cols-2">
+        <div className="grid w-full flex-1 gap-3 grid-cols-1 lg:grid-cols-2">
           <Panel title={`${machine.id} · ${machine.type}`} bodyClassName="p-0">
             <div className="h-[230px] w-full">
               <IsoScene viewBox="-110 -120 220 245">

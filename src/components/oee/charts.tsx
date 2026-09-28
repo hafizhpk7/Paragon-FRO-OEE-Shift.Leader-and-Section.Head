@@ -87,7 +87,10 @@ export function TrendChart({
 }) {
   const colors = ["var(--primary)", "var(--tier-good)", "var(--tier-warn)", "var(--tier-bad)"];
   return (
-    <div className="relative min-h-[250px] w-full flex-1" style={height ? { height } : undefined}>
+    <div
+      className="relative h-[250px] max-h-[350px] min-h-[200px] w-full"
+      style={height ? { height } : undefined}
+    >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
           <CartesianGrid stroke="var(--grid)" vertical={false} />

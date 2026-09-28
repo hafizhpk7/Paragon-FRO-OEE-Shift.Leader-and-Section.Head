@@ -87,8 +87,8 @@ function AnalyticsPage() {
           <NoDataForFilters />
         </main>
       ) : (
-        <main className="flex flex-1 flex-col gap-3 p-4">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+        <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
             <div className="flex items-center justify-center rounded-lg border border-border bg-surface py-3">
               <Donut value={avg("oee")} size={96} label="Average OEE" />
             </div>
@@ -132,7 +132,7 @@ function AnalyticsPage() {
             </KpiCard>
           </div>
 
-          <div className="grid min-h-[340px] flex-1 auto-rows-fr items-stretch gap-3 lg:grid-cols-[1.4fr_1fr]">
+          <div className="grid w-full flex-1 items-stretch gap-3 grid-cols-1 lg:grid-cols-[1.4fr_1fr]">
             <Panel
               title="OEE Trend"
               subtitle="Dashed line = reference target 75%"

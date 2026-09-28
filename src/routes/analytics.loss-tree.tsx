@@ -51,14 +51,22 @@ function LossTreePage() {
           <NoDataForFilters />
         </main>
       ) : (
-        <main className="grid flex-1 auto-rows-fr gap-3 p-4 lg:grid-cols-2">
-          <Panel title="OEE Waterfall" subtitle={scope.scopeLabel} bodyClassName="min-h-0 p-0">
-            <Waterfall milestones={wf.milestones} losses={wf.losses} />
+        <main className="grid flex-1 w-full gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden grid-cols-1 lg:grid-cols-2">
+          <Panel
+            title="OEE Waterfall"
+            subtitle={scope.scopeLabel}
+            className="w-full min-w-0 overflow-hidden"
+            bodyClassName="min-h-0 p-0 w-full min-w-0 overflow-x-auto"
+          >
+            <div className="w-full min-w-[460px] sm:min-w-0">
+              <Waterfall milestones={wf.milestones} losses={wf.losses} />
+            </div>
           </Panel>
 
           <Panel
             title="Loss Tree"
             action={<MeasureToggle value={measure} onChange={setMeasure} />}
+            className="w-full min-w-0 overflow-hidden"
             bodyClassName="min-h-0 overflow-auto p-3"
           >
             <LossTree

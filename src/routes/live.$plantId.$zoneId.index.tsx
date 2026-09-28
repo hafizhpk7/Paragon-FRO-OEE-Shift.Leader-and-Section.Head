@@ -180,8 +180,8 @@ function ZoneContent({
           ? { back: { label: "Plant View", to: "/live/$plantId", params: { plantId } } }
           : {})}
       />
-      <main className="flex flex-1 flex-col gap-3 p-4">
-        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
           <KpiCard
             label="Zone OEE"
             value={liveState.metrics.oee.toFixed(1)}
@@ -237,13 +237,16 @@ function ZoneContent({
         </div>
 
         <Panel
-          className="flex-1"
+          className="flex-1 w-full min-w-0"
           title="Production Floor Map"
           subtitle={`${zone.lines.length} lines · ${machineCount} machines · bays ${rows} × ${cols} (${rows * cols - zone.lines.length} spare)`}
-          bodyClassName="relative p-0"
+          bodyClassName="relative p-0 overflow-hidden"
         >
-          <div ref={mapContainerRef} className="relative h-full w-full flex-1">
-            <ZoomableMap className="min-h-[440px] flex-1">
+          <div
+            ref={mapContainerRef}
+            className="relative h-full w-full min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1"
+          >
+            <ZoomableMap className="min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1">
               <IsoScene viewBox="-260 -100 620 460">
                 <IsoGround cols={cols * GAP_X + 0.6} rows={rows * GAP_Y + 0.6} s={S} />
                 {zone.lines.map((l, i) => {
@@ -405,15 +408,15 @@ function ZoneContent({
         </Panel>
       </main>
       <Dialog open={showIssues} onOpenChange={setShowIssues}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] md:w-auto md:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Lines Requiring Attention</DialogTitle>
             <DialogDescription>
               Current Down, Slow, and Idle lines in {zone.name} with real-time operational status.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-md border border-border overflow-hidden">
-            <Table>
+          <div className="w-full min-w-0 overflow-x-auto rounded-md border border-border">
+            <Table className="min-w-[500px]">
               <TableHeader className="bg-muted/40">
                 <TableRow>
                   <TableHead className="font-semibold text-xs text-foreground">Line Name</TableHead>

@@ -29,6 +29,9 @@ type Ctx = {
   setRole: (r: Role) => void;
   isCollapsed: boolean;
   setIsCollapsed: (collapsed: boolean) => void;
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (open: boolean) => void;
+  toggleMobileSidebar: () => void;
   isDarkMode: boolean;
   setIsDarkMode: (dark: boolean) => void;
   livePeriod: PeriodId;
@@ -47,6 +50,7 @@ const AppContext = (globalStore.__oeeAppContext ??= createContext<Ctx | null>(nu
 export function AppProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role>("shift-leader");
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [livePeriod, setLivePeriod] = useState<PeriodId>("live");
   const [filters, setFiltersState] = useState<Filters>({
@@ -57,6 +61,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     lineIds: [],
     sku: "all",
   });
+
+  const toggleMobileSidebar = useCallback(() => {
+    setMobileSidebarOpen((prev) => !prev);
+  }, []);
 
   const setFilters = useCallback((patch: Partial<Filters>) => {
     setFiltersState((prev) => {
@@ -86,6 +94,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRole,
       isCollapsed,
       setIsCollapsed,
+      mobileSidebarOpen,
+      setMobileSidebarOpen,
+      toggleMobileSidebar,
       isDarkMode,
       setIsDarkMode,
       livePeriod,
@@ -93,7 +104,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       filters,
       setFilters,
     }),
-    [role, isCollapsed, isDarkMode, livePeriod, filters, setFilters],
+    [
+      role,
+      isCollapsed,
+      mobileSidebarOpen,
+      setMobileSidebarOpen,
+      toggleMobileSidebar,
+      isDarkMode,
+      livePeriod,
+      filters,
+      setFilters,
+    ],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

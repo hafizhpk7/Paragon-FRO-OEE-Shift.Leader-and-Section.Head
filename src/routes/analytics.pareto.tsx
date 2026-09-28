@@ -75,9 +75,9 @@ function ParetoPage() {
           <NoDataForFilters />
         </main>
       ) : (
-        <main className="flex flex-1 flex-col gap-3 p-4">
+        <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
           <Panel
-            className="min-h-[340px] flex-1"
+            className="min-h-[340px] flex-1 w-full min-w-0"
             title="Parent Issues"
             subtitle="All loss categories at once · click a bar to drill down"
             action={
@@ -100,7 +100,7 @@ function ParetoPage() {
             />
           </Panel>
 
-          <div className="grid min-h-[340px] flex-1 auto-rows-fr items-stretch gap-3 lg:grid-cols-2">
+          <div className="grid w-full flex-1 items-stretch gap-3 grid-cols-1 lg:grid-cols-2">
             <Panel
               title="Child Issues Level 1"
               subtitle={parent ? `Scoped to ${parent.label}` : undefined}
