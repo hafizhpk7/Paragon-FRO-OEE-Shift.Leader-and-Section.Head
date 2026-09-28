@@ -2,10 +2,20 @@ import { createFileRoute, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { IsoBlock, IsoGround, IsoScene } from "@/components/oee/iso";
-import { Donut, EmptyState, KpiCard, MetricBar, PageHeader, Panel } from "@/components/oee/ui";
+import {
+  ComparisonLabel,
+  Delta,
+  Donut,
+  EmptyState,
+  KpiCard,
+  MetricBar,
+  PageHeader,
+  Panel,
+} from "@/components/oee/ui";
 import { STATUS_HEX } from "@/lib/oee/config";
-import { getMachine, getLine } from "@/lib/oee/data";
+import { getLine, getMachine } from "@/lib/oee/data";
 import type { PeriodId } from "@/lib/oee/filters";
+import { comparisonContext, useLiveMachineState } from "@/lib/oee/live-display";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/live/$plantId/$zoneId/$lineId/$machineId")({
@@ -34,6 +44,8 @@ function MachineDetail() {
   const [period, setPeriod] = useState<PeriodId>("live");
   const line = getLine(plantId, zoneId, lineId);
   const machine = getMachine(plantId, zoneId, lineId, machineId);
+  const liveState = useLiveMachineState(period, plantId, zoneId, lineId, machineId);
+  const liveMachine = liveState.machine;
 
   if (!line || !machine) {
     return (
@@ -45,6 +57,7 @@ function MachineDetail() {
 
   const groups = Array.from(new Set(machine.sensors.map((s) => s.group)));
   const stop = machine.currentStop;
+  const compareLabel = comparisonContext(period);
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
@@ -69,10 +82,38 @@ function MachineDetail() {
       />
       <main className="flex flex-1 flex-col gap-3 p-4">
         <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-          <KpiCard label="Machine OEE" value={machine.oee.toFixed(1)} unit="%" />
-          <KpiCard label="Availability" value={machine.availability.toFixed(1)} unit="%" />
-          <KpiCard label="Performance" value={machine.performance.toFixed(1)} unit="%" />
-          <KpiCard label="Quality" value={machine.quality.toFixed(1)} unit="%" />
+          <KpiCard
+            label="Machine OEE"
+            value={liveMachine.oee.toFixed(1)}
+            unit="%"
+            caption={<Delta value={liveState.deltas.oee} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
+          />
+          <KpiCard
+            label="Availability"
+            value={liveMachine.availability.toFixed(1)}
+            unit="%"
+            caption={<Delta value={liveState.deltas.availability} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
+          />
+          <KpiCard
+            label="Performance"
+            value={liveMachine.performance.toFixed(1)}
+            unit="%"
+            caption={<Delta value={liveState.deltas.performance} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
+          />
+          <KpiCard
+            label="Quality"
+            value={liveMachine.quality.toFixed(1)}
+            unit="%"
+            caption={<Delta value={liveState.deltas.quality} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
+          />
           <KpiCard
             label="Status"
             value={machine.status.toUpperCase()}
@@ -117,11 +158,11 @@ function MachineDetail() {
 
           <Panel title="Machine OEE">
             <div className="flex flex-wrap items-center gap-6">
-              <Donut value={machine.oee} size={116} label="Machine OEE" />
+              <Donut value={liveMachine.oee} size={116} label="Machine OEE" />
               <div className="grid min-w-48 flex-1 gap-2">
-                <MetricBar label="Availability" value={machine.availability} />
-                <MetricBar label="Performance" value={machine.performance} />
-                <MetricBar label="Quality" value={machine.quality} />
+                <MetricBar label="Availability" value={liveMachine.availability} />
+                <MetricBar label="Performance" value={liveMachine.performance} />
+                <MetricBar label="Quality" value={liveMachine.quality} />
               </div>
             </div>
           </Panel>
@@ -137,7 +178,7 @@ function MachineDetail() {
                     {g}
                   </p>
                   <ul className="divide-y divide-border/70 rounded border border-border">
-                    {machine.sensors
+                    {liveState.sensors
                       .filter((s) => s.group === g)
                       .map((s) => (
                         <li

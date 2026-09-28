@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import { DEFAULT_PLANT_ID } from "./data";
-import { snapResolution, type ResolutionId, type SpanId } from "./filters";
+import { snapResolution, type ResolutionId, type SpanId, type PeriodId } from "./filters";
 
 export type Role = "shift-leader" | "section-head";
 
@@ -31,6 +31,8 @@ type Ctx = {
   setIsCollapsed: (collapsed: boolean) => void;
   isDarkMode: boolean;
   setIsDarkMode: (dark: boolean) => void;
+  livePeriod: PeriodId;
+  setLivePeriod: (p: PeriodId) => void;
   filters: Filters;
   /** Applies the cascading rules from §5 automatically. */
   setFilters: (patch: Partial<Filters>) => void;
@@ -46,6 +48,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role>("shift-leader");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [livePeriod, setLivePeriod] = useState<PeriodId>("live");
   const [filters, setFiltersState] = useState<Filters>({
     span: "this-week",
     resolution: "1d",
@@ -85,10 +88,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setIsCollapsed,
       isDarkMode,
       setIsDarkMode,
+      livePeriod,
+      setLivePeriod,
       filters,
       setFilters,
     }),
-    [role, isCollapsed, isDarkMode, filters, setFilters],
+    [role, isCollapsed, isDarkMode, livePeriod, filters, setFilters],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

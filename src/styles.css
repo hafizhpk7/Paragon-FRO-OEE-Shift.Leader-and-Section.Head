@@ -66,6 +66,7 @@
   --color-status-slow: var(--status-slow);
   --color-status-down: var(--status-down);
   --color-status-idle: var(--status-idle);
+  --color-loss-minor-stop: var(--loss-minor-stop);
   --color-surface: var(--surface);
   --color-grid: var(--grid);
   --color-loss-milestone: var(--loss-milestone);

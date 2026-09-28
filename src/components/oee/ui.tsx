@@ -11,7 +11,7 @@ import {
   type Status,
 } from "@/lib/oee/config";
 import { PERIODS, type PeriodId } from "@/lib/oee/filters";
-import { useLiveClock } from "@/lib/oee/live-display";
+import { comparisonContext, useLiveClock } from "@/lib/oee/live-display";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -106,19 +106,46 @@ export function Donut({
   );
 }
 
-export function Delta({ value, suffix = "%" }: { value: number; suffix?: string }) {
-  const up = value >= 0;
+export function ComparisonLabel({ period, className }: { period: PeriodId; className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 font-mono text-[11px]",
-        up ? "text-tier-good" : "text-tier-bad",
+        "block font-sans text-[10px] text-muted-foreground leading-tight tracking-normal",
+        className,
       )}
     >
-      {up ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
-      {Math.abs(value).toFixed(1)}
-      {suffix}
+      {comparisonContext(period)}
     </span>
+  );
+}
+
+export function Delta({
+  value,
+  suffix = "%",
+  period,
+  className,
+}: {
+  value: number;
+  suffix?: string;
+  period?: PeriodId;
+  className?: string;
+}) {
+  const up = value >= 0;
+  return (
+    <div className={cn("inline-flex flex-col items-start gap-0.5", className)}>
+      <span
+        className={cn(
+          "inline-flex items-center gap-0.5 font-mono text-[11px] font-medium",
+          up ? "text-tier-good" : "text-tier-bad",
+        )}
+      >
+        {up ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
+        {up ? "+" : "-"}
+        {Math.abs(value).toFixed(1)}
+        {suffix}
+      </span>
+      {period && <ComparisonLabel period={period} />}
+    </div>
   );
 }
 
@@ -130,8 +157,11 @@ export function KpiCard({
   tone,
   children,
   comparisonLabel,
+  period,
+  delta,
   isUpdating = false,
   onClick,
+  className,
 }: {
   label: string;
   value: string | number;
@@ -140,8 +170,11 @@ export function KpiCard({
   tone?: "good" | "warn" | "bad" | "neutral";
   children?: ReactNode;
   comparisonLabel?: string;
+  period?: PeriodId;
+  delta?: number;
   isUpdating?: boolean;
   onClick?: () => void;
+  className?: string;
 }) {
   const toneClass =
     tone === "good"
@@ -151,46 +184,68 @@ export function KpiCard({
         : tone === "bad"
           ? "text-tier-bad"
           : "text-foreground";
+
   const content = (
     <>
-      <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-        {label}
-      </span>
-      <div className="flex items-baseline gap-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          {label}
+        </span>
+        {isUpdating && (
+          <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary animate-pulse">
+            <span className="size-1 rounded-full bg-primary animate-ping" />
+            live sync
+          </span>
+        )}
+      </div>
+      <div className="relative flex items-baseline gap-1">
         <span
           className={cn(
-            "rounded-sm font-mono text-2xl font-semibold leading-none transition-colors duration-300",
+            "rounded px-1 -mx-1 font-mono text-2xl font-semibold leading-none transition-all duration-300",
             toneClass,
-            isUpdating && "bg-primary/15",
+            isUpdating &&
+              "bg-primary/20 text-primary shadow-[0_0_12px_rgba(59,130,246,0.35)] ring-1 ring-primary/40 animate-pulse scale-105 inline-block",
           )}
         >
           {value}
         </span>
         {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>
-      {caption && <div className="truncate text-[11px] text-muted-foreground">{caption}</div>}
-      {comparisonLabel && (
-        <div className="text-[10px] text-muted-foreground">{comparisonLabel}</div>
-      )}
+      <div className="mt-0.5 flex flex-col gap-0.5">
+        {delta !== undefined && <Delta value={delta} />}
+        {caption && <div className="text-[11px] text-muted-foreground">{caption}</div>}
+        {comparisonLabel ? (
+          <span className="text-[10px] text-muted-foreground leading-tight">{comparisonLabel}</span>
+        ) : period && delta !== undefined ? (
+          <ComparisonLabel period={period} />
+        ) : null}
+      </div>
       {children}
     </>
   );
 
   if (onClick) {
     return (
-      <Button
+      <button
         type="button"
-        variant="ghost"
         onClick={onClick}
-        className="h-auto min-w-0 flex-col items-stretch justify-between gap-1 whitespace-normal rounded-lg border border-border bg-surface px-3 py-2.5 text-left shadow-none hover:bg-accent"
+        className={cn(
+          "group relative flex min-w-0 flex-col justify-between gap-1.5 rounded-lg border border-border bg-surface px-3 py-2.5 text-left shadow-none transition-colors duration-150 cursor-pointer hover:bg-gray-50 dark:hover:bg-muted/60 hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          className,
+        )}
       >
         {content}
-      </Button>
+      </button>
     );
   }
 
   return (
-    <div className="flex min-w-0 flex-col justify-between gap-1 rounded-lg border border-border bg-surface px-3 py-2.5">
+    <div
+      className={cn(
+        "flex min-w-0 flex-col justify-between gap-1.5 rounded-lg border border-border bg-surface px-3 py-2.5",
+        className,
+      )}
+    >
       {content}
     </div>
   );
@@ -282,7 +337,7 @@ export function PageHeader({
   children?: ReactNode;
 }) {
   const liveTime = useLiveClock(period ?? "today");
-  const displayMeta = period === "live" ? liveTime : meta;
+  const displayMeta = period === "live" ? (liveTime ?? meta ?? "Live Monitor") : meta;
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/90 px-4 py-3 backdrop-blur">
@@ -321,7 +376,18 @@ export function PageHeader({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {displayMeta && (
-            <span className="font-mono text-[11px] text-muted-foreground">{displayMeta}</span>
+            <span
+              suppressHydrationWarning
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 font-mono text-[11px] text-muted-foreground shadow-xs"
+            >
+              {period === "live" && (
+                <span className="relative flex h-2 w-2" title="Live clock active">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                </span>
+              )}
+              <span suppressHydrationWarning>{displayMeta}</span>
+            </span>
           )}
           {children}
           {period && onPeriod && <PeriodDropdown value={period} onChange={onPeriod} />}

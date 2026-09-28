@@ -1,11 +1,31 @@
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
-import { Compass, IsoBlock, IsoChip, IsoGround, IsoScene, ZoomableMap } from "@/components/oee/iso";
-import { Donut, EmptyState, MetricBar, PageHeader, Panel, StatusLegend } from "@/components/oee/ui";
-import { STATUS_HEX, TIER_HEX, tierOf } from "@/lib/oee/config";
+import {
+  Compass,
+  IsoBlock,
+  IsoChip,
+  IsoGround,
+  IsoScene,
+  ZoomableMap,
+  MapHoverTooltip,
+  MapStatusLegendOverlay,
+  type MapTooltipInfo,
+} from "@/components/oee/iso";
+import {
+  ComparisonLabel,
+  Delta,
+  Donut,
+  EmptyState,
+  MetricBar,
+  PageHeader,
+  Panel,
+  StatusLegend,
+} from "@/components/oee/ui";
+import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { getPlant, plantAlarms } from "@/lib/oee/data";
 import type { PeriodId } from "@/lib/oee/filters";
+import { useLivePlantState } from "@/lib/oee/live-display";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/live/$plantId/")({
@@ -30,8 +50,11 @@ export const Route = createFileRoute("/live/$plantId/")({
 function PlantView() {
   const { plantId } = useParams({ from: "/live/$plantId/" });
   const [period, setPeriod] = useState<PeriodId>("live");
+  const [tooltip, setTooltip] = useState<MapTooltipInfo | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const plant = getPlant(plantId);
+  const liveState = useLivePlantState(period, plantId);
 
   if (!plant) {
     return (
@@ -59,37 +82,61 @@ function PlantView() {
         back={{ label: "Multi Plant", to: "/live" }}
       />
       <main className="flex flex-1 flex-col gap-3 p-4">
-        <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface p-4">
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface p-4 transition-colors",
+            liveState.isUpdating && "border-primary/50 shadow-[0_0_12px_rgba(59,130,246,0.15)]",
+          )}
+        >
           <div className="flex items-center gap-4 pr-4">
-            <Donut value={plant.oee} size={92} label="Plant OEE" />
+            <div className="flex flex-col items-center">
+              <Donut value={liveState.plant.oee} size={92} label="Plant OEE" />
+              <div className="mt-1 flex flex-col items-center text-center">
+                <Delta value={liveState.plantDeltas.oee} />
+                <ComparisonLabel period={period} />
+              </div>
+            </div>
             <div className="grid w-44 gap-1.5">
-              <MetricBar label="Availability" value={plant.availability} />
-              <MetricBar label="Performance" value={plant.performance} />
-              <MetricBar label="Quality" value={plant.quality} />
+              <MetricBar label="Availability" value={liveState.plant.availability} />
+              <MetricBar label="Performance" value={liveState.plant.performance} />
+              <MetricBar label="Quality" value={liveState.plant.quality} />
             </div>
           </div>
           <div className="grid flex-1 gap-3 sm:grid-cols-3">
-            {plant.zones.map((z) => (
-              <button
-                key={z.id}
-                type="button"
-                onClick={() =>
-                  navigate({
-                    to: "/live/$plantId/$zoneId",
-                    params: { plantId: plant.id, zoneId: z.id },
-                  })
-                }
-                className="flex items-center gap-3 rounded-lg border border-border p-2.5 text-left transition-colors hover:border-primary"
-              >
-                <Donut value={z.oee} size={58} label={z.id} />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="truncate text-xs font-semibold">{z.name}</p>
-                  <MetricBar label="A" value={z.availability} />
-                  <MetricBar label="P" value={z.performance} />
-                  <MetricBar label="Q" value={z.quality} />
-                </div>
-              </button>
-            ))}
+            {plant.zones.map((z) => {
+              const liveZone = liveState.zones[z.id] ?? z;
+              const deltaVal = liveState.zoneDeltas[z.id] ?? 0;
+              return (
+                <button
+                  key={z.id}
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      to: "/live/$plantId/$zoneId",
+                      params: { plantId: plant.id, zoneId: z.id },
+                    })
+                  }
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border border-border p-2.5 text-left transition-colors hover:border-primary cursor-pointer",
+                    liveState.isUpdating && "border-primary/40 bg-primary/5",
+                  )}
+                >
+                  <div className="flex flex-col items-center">
+                    <Donut value={liveZone.oee} size={58} label={z.id} />
+                    <div className="mt-1 flex flex-col items-center text-center">
+                      <Delta value={deltaVal} />
+                      <ComparisonLabel period={period} />
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="truncate text-xs font-semibold">{z.name}</p>
+                    <MetricBar label="A" value={liveZone.availability} />
+                    <MetricBar label="P" value={liveZone.performance} />
+                    <MetricBar label="Q" value={liveZone.quality} />
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -97,51 +144,91 @@ function PlantView() {
           <Panel
             title="Zone map"
             subtitle="Click a zone to open Zone View"
-            action={<StatusLegend />}
             bodyClassName="relative p-0"
           >
-            <Compass />
-            <ZoomableMap className="min-h-[380px] flex-1">
-              <IsoScene viewBox="-185 -105 365 305">
-                <IsoGround cols={6} rows={6} s={34} />
-                {plant.zones.map((z, zi) =>
-                  z.lines.slice(0, 12).map((l, li) => {
-                    const x = 0.4 + zi * 1.9;
-                    const y = 0.3 + li * 0.45;
+            <div ref={mapContainerRef} className="relative h-full w-full flex-1">
+              <Compass />
+              <ZoomableMap className="min-h-[380px] flex-1">
+                <IsoScene viewBox="-270 -115 560 440">
+                  <IsoGround cols={plant.zones.length * 2.5 + 0.8} rows={12 * 0.72 + 0.8} s={32} />
+                  {plant.zones.map((z, zi) =>
+                    z.lines.slice(0, 12).map((l, li) => {
+                      const x = 0.6 + zi * 2.5;
+                      const y = 0.5 + li * 0.72;
+                      return (
+                        <IsoBlock
+                          key={`${z.id}-${l.id}`}
+                          x={x}
+                          y={y}
+                          w={1.5}
+                          d={0.38}
+                          h={14 + l.oee * 0.4}
+                          s={32}
+                          color={STATUS_HEX[l.status]}
+                          onClick={() =>
+                            navigate({
+                              to: "/live/$plantId/$zoneId",
+                              params: { plantId: plant.id, zoneId: z.id },
+                            })
+                          }
+                          onMouseEnter={(e) => {
+                            const rect = mapContainerRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              setTooltip({
+                                title: `Line ${l.id}`,
+                                subtitle: `${z.name} · ${l.machines.length} machines`,
+                                status: l.status,
+                                statusLabel: STATUS_LABEL[l.status],
+                                oee: l.oee,
+                                x: e.clientX - rect.left,
+                                y: e.clientY - rect.top,
+                              });
+                            }
+                          }}
+                          onMouseMove={(e) => {
+                            const rect = mapContainerRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              setTooltip((curr) =>
+                                curr
+                                  ? { ...curr, x: e.clientX - rect.left, y: e.clientY - rect.top }
+                                  : {
+                                      title: `Line ${l.id}`,
+                                      subtitle: `${z.name} · ${l.machines.length} machines`,
+                                      status: l.status,
+                                      statusLabel: STATUS_LABEL[l.status],
+                                      oee: l.oee,
+                                      x: e.clientX - rect.left,
+                                      y: e.clientY - rect.top,
+                                    },
+                              );
+                            }
+                          }}
+                          onMouseLeave={() => setTooltip(null)}
+                        />
+                      );
+                    }),
+                  )}
+                  {plant.zones.map((z, zi) => {
+                    const zoneOee = liveState.zones[z.id]?.oee ?? z.oee;
                     return (
-                      <IsoBlock
-                        key={`${z.id}-${l.id}`}
-                        x={x}
-                        y={y}
-                        w={1.5}
-                        d={0.32}
-                        h={12 + l.oee * 0.4}
-                        s={34}
-                        color={STATUS_HEX[l.status]}
-                        onClick={() =>
-                          navigate({
-                            to: "/live/$plantId/$zoneId",
-                            params: { plantId: plant.id, zoneId: z.id },
-                          })
-                        }
+                      <IsoChip
+                        key={z.id}
+                        x={0.6 + zi * 2.5 + 0.75}
+                        y={0.2}
+                        s={32}
+                        h={75}
+                        label={z.name}
+                        value={`${zoneOee.toFixed(0)}%`}
+                        color={TIER_HEX[tierOf(zoneOee)]}
                       />
                     );
-                  }),
-                )}
-                {plant.zones.map((z, zi) => (
-                  <IsoChip
-                    key={z.id}
-                    x={1.15 + zi * 1.9}
-                    y={0.2}
-                    s={34}
-                    h={70}
-                    label={z.name}
-                    value={`${z.oee.toFixed(0)}%`}
-                    color={TIER_HEX[tierOf(z.oee)]}
-                  />
-                ))}
-              </IsoScene>
-            </ZoomableMap>
+                  })}
+                </IsoScene>
+              </ZoomableMap>
+
+              <MapStatusLegendOverlay />
+              <MapHoverTooltip info={tooltip} />
+            </div>
           </Panel>
 
           <Panel

@@ -1,8 +1,18 @@
-import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
+import { ArrowRight, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 
-import { IsoBlock, IsoChip, IsoGround, IsoScene, ZoomableMap, iso } from "@/components/oee/iso";
+import {
+  IsoBlock,
+  IsoChip,
+  IsoGround,
+  IsoScene,
+  ZoomableMap,
+  iso,
+  MapHoverTooltip,
+  MapStatusLegendOverlay,
+  type MapTooltipInfo,
+} from "@/components/oee/iso";
 import {
   Delta,
   EmptyState,
@@ -12,7 +22,7 @@ import {
   StatusLegend,
   StatusPill,
 } from "@/components/oee/ui";
-import { STATUS_HEX, TIER_HEX, tierOf } from "@/lib/oee/config";
+import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { getZone, type Line } from "@/lib/oee/data";
 import type { PeriodId } from "@/lib/oee/filters";
 import { useApp } from "@/lib/oee/app-context";
@@ -54,9 +64,11 @@ export const Route = createFileRoute("/live/$plantId/$zoneId/")({
   component: ZoneView,
 });
 
-const S = 40;
-const GAP_X = 1.7;
-const GAP_Y = 1.8;
+const S = 38;
+const GAP_X = 2.4;
+const GAP_Y = 2.5;
+const BLOCK_W = 0.95;
+const BLOCK_D = 0.95;
 
 function ZoneView() {
   const { plantId, zoneId } = useParams({ from: "/live/$plantId/$zoneId/" });
@@ -80,8 +92,13 @@ function ZoneContent({
   plantId: string;
   zone: NonNullable<ReturnType<typeof getZone>>;
 }) {
+  const zoneId = zone.id;
   const [period, setPeriod] = useState<PeriodId>("live");
   const [selected, setSelected] = useState<Line | null>(null);
+  const [hovered, setHovered] = useState<Line | null>(null);
+  const [tooltip, setTooltip] = useState<MapTooltipInfo | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const activeLine = selected ?? hovered;
   const [showIssues, setShowIssues] = useState(false);
   const navigate = useNavigate();
   const { role } = useApp();
@@ -103,30 +120,41 @@ function ZoneContent({
   const issues = useMemo(() => {
     const priority = { down: 0, slow: 1, idle: 2 } as const;
     const reasons = {
-      down: ["Mechanical Breakdown", "Conveyor Jam", "Setup/Changeover"],
-      slow: ["Reduced Speed", "Material Shortage", "Minor Stops"],
+      down: [
+        "Mechanical Breakdown",
+        "Setup/Changeover",
+        "Conveyor Jam at infeed",
+        "Bearing seizure on main drive",
+      ],
+      slow: ["Material Shortage", "Reduced Speed", "Minor Stops", "Film splice sensor fault"],
       idle: ["No Production Order", "Waiting Material", "Planned Cleaning"],
     } as const;
     return zone.lines
       .map((line) => ({ line, status: liveState.lineStatuses[line.id] ?? line.status }))
       .filter((item) => item.status !== "running")
-      .map((item) => ({
-        ...item,
-        reason:
+      .map((item) => {
+        const pool = reasons[item.status];
+        const reason =
           item.line.fault ??
-          reasons[item.status][
-            Math.floor(
-              rand(`${zone.id}-${item.line.id}-reason`, 0, reasons[item.status].length, 4),
-            ) % reasons[item.status].length
-          ],
-        duration: rand(
-          `${zone.id}-${item.line.id}-duration`,
-          8,
-          item.status === "down" ? 78 : 48,
-          0,
-        ),
-      }))
-      .sort((a, b) => priority[a.status] - priority[b.status] || b.duration - a.duration);
+          pool[
+            Math.floor(rand(`${zone.id}-${item.line.id}-reason`, 0, pool.length, 4)) % pool.length
+          ];
+        const durationMinutes =
+          item.status === "down"
+            ? Math.round(rand(`${zone.id}-${item.line.id}-duration`, 12, 75, 0))
+            : item.status === "slow"
+              ? Math.round(rand(`${zone.id}-${item.line.id}-duration`, 8, 45, 0))
+              : Math.round(rand(`${zone.id}-${item.line.id}-duration`, 15, 60, 0));
+        return {
+          ...item,
+          reason,
+          duration: `${durationMinutes} mins`,
+          durationMinutes,
+        };
+      })
+      .sort(
+        (a, b) => priority[a.status] - priority[b.status] || b.durationMinutes - a.durationMinutes,
+      );
   }, [liveState.lineStatuses, zone.id, zone.lines]);
 
   // Shift Leader enters here directly, so no Plant in the breadcrumb; Section Head
@@ -165,22 +193,15 @@ function ZoneContent({
                   ? "warn"
                   : "bad"
             }
-            caption={
-              liveState.metrics.oee >= 75
-                ? "On target"
-                : `${(75 - liveState.metrics.oee).toFixed(1)}% below target`
-            }
+            caption={<Delta value={liveState.deltas.oee} />}
+            comparisonLabel={compareLabel}
             isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Availability"
             value={liveState.metrics.availability.toFixed(1)}
             unit="%"
-            caption={
-              <Delta
-                value={liveState.metrics.availability - liveState.previousMetrics.availability}
-              />
-            }
+            caption={<Delta value={liveState.deltas.availability} />}
             comparisonLabel={compareLabel}
             isUpdating={liveState.isUpdating}
           />
@@ -188,11 +209,7 @@ function ZoneContent({
             label="Performance"
             value={liveState.metrics.performance.toFixed(1)}
             unit="%"
-            caption={
-              <Delta
-                value={liveState.metrics.performance - liveState.previousMetrics.performance}
-              />
-            }
+            caption={<Delta value={liveState.deltas.performance} />}
             comparisonLabel={compareLabel}
             isUpdating={liveState.isUpdating}
           />
@@ -200,9 +217,7 @@ function ZoneContent({
             label="Quality"
             value={liveState.metrics.quality.toFixed(1)}
             unit="%"
-            caption={
-              <Delta value={liveState.metrics.quality - liveState.previousMetrics.quality} />
-            }
+            caption={<Delta value={liveState.deltas.quality} />}
             comparisonLabel={compareLabel}
             isUpdating={liveState.isUpdating}
           />
@@ -214,9 +229,10 @@ function ZoneContent({
             caption={`${slow} slow · ${idle} idle`}
             onClick={() => setShowIssues(true)}
           >
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary">
-              View Details <ArrowRight className="size-3" />
-            </span>
+            <div className="mt-1 flex items-center gap-1 text-xs font-medium text-primary group-hover:underline">
+              <span>View Details</span>
+              <ArrowRight className="size-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+            </div>
           </KpiCard>
         </div>
 
@@ -224,92 +240,151 @@ function ZoneContent({
           className="flex-1"
           title="Production Floor Map"
           subtitle={`${zone.lines.length} lines · ${machineCount} machines · bays ${rows} × ${cols} (${rows * cols - zone.lines.length} spare)`}
-          action={<StatusLegend />}
           bodyClassName="relative p-0"
         >
-          <ZoomableMap className="min-h-[440px] flex-1">
-            <IsoScene viewBox="-185 -95 470 360">
-              <IsoGround cols={cols * GAP_X + 0.5} rows={rows * GAP_Y + 0.5} s={S} />
-              {zone.lines.map((l, i) => {
-                const bx = 0.4 + (i % cols) * GAP_X;
-                const by = 0.4 + Math.floor(i / cols) * GAP_Y;
-                const isSel = selected?.id === l.id;
-                const lineStatus = statusForLine(l);
-                return (
-                  <g key={l.id}>
-                    <IsoBlock
-                      x={bx}
-                      y={by}
-                      w={0.9}
-                      d={0.9}
-                      h={isSel ? 30 : 20}
-                      s={S}
-                      color={STATUS_HEX[lineStatus]}
-                      onClick={() => setSelected(isSel ? null : l)}
-                      dim={!!selected && !isSel}
-                    />
-                    {/* machine status dots inside the line footprint */}
-                    {l.machines.map((m, mi) => {
-                      const p = iso(bx + 0.18 + mi * 0.2, by + 0.45, isSel ? 32 : 22, S);
-                      return (
-                        <circle
-                          key={m.id}
-                          cx={p.x}
-                          cy={p.y}
-                          r={2.6}
-                          fill={
-                            STATUS_HEX[liveState.machineStatuses[`${l.id}:${m.id}`] ?? m.status]
+          <div ref={mapContainerRef} className="relative h-full w-full flex-1">
+            <ZoomableMap className="min-h-[440px] flex-1">
+              <IsoScene viewBox="-260 -100 620 460">
+                <IsoGround cols={cols * GAP_X + 0.6} rows={rows * GAP_Y + 0.6} s={S} />
+                {zone.lines.map((l, i) => {
+                  const bx = 0.5 + (i % cols) * GAP_X;
+                  const by = 0.5 + Math.floor(i / cols) * GAP_Y;
+                  const isActive = activeLine?.id === l.id;
+                  const lineStatus = statusForLine(l);
+                  return (
+                    <g key={l.id}>
+                      <IsoBlock
+                        x={bx}
+                        y={by}
+                        w={BLOCK_W}
+                        d={BLOCK_D}
+                        h={isActive ? 30 : 20}
+                        s={S}
+                        color={STATUS_HEX[lineStatus]}
+                        onClick={() => setSelected((curr) => (curr?.id === l.id ? null : l))}
+                        onMouseEnter={(e) => {
+                          setHovered(l);
+                          const rect = mapContainerRef.current?.getBoundingClientRect();
+                          if (rect) {
+                            setTooltip({
+                              title: `Line ${l.id}`,
+                              subtitle: `${l.sku} · ${l.machines.length} machines`,
+                              status: lineStatus,
+                              statusLabel: STATUS_LABEL[lineStatus],
+                              oee: l.oee,
+                              x: e.clientX - rect.left,
+                              y: e.clientY - rect.top,
+                            });
                           }
-                          stroke="var(--surface)"
-                          strokeWidth={0.8}
-                        />
-                      );
-                    })}
-                    <IsoChip
-                      x={bx + 0.45}
-                      y={by + 0.45}
-                      s={S}
-                      h={isSel ? 32 : 22}
-                      label={l.id}
-                      value={`${l.oee.toFixed(0)}%`}
-                      color={TIER_HEX[tierOf(l.oee)]}
-                    />
-                  </g>
-                );
-              })}
-            </IsoScene>
-          </ZoomableMap>
+                        }}
+                        onMouseMove={(e) => {
+                          const rect = mapContainerRef.current?.getBoundingClientRect();
+                          if (rect) {
+                            setTooltip({
+                              title: `Line ${l.id}`,
+                              subtitle: `${l.sku} · ${l.machines.length} machines`,
+                              status: lineStatus,
+                              statusLabel: STATUS_LABEL[lineStatus],
+                              oee: l.oee,
+                              x: e.clientX - rect.left,
+                              y: e.clientY - rect.top,
+                            });
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          setHovered((curr) => (curr?.id === l.id ? null : curr));
+                          setTooltip(null);
+                        }}
+                        dim={!!activeLine && !isActive}
+                      />
+                      {/* machine status dots inside the line footprint */}
+                      {l.machines.map((m, mi) => {
+                        const p = iso(bx + 0.2 + mi * 0.22, by + 0.48, isActive ? 34 : 24, S);
+                        return (
+                          <circle
+                            key={m.id}
+                            cx={p.x}
+                            cy={p.y}
+                            r={2.8}
+                            fill={
+                              STATUS_HEX[liveState.machineStatuses[`${l.id}:${m.id}`] ?? m.status]
+                            }
+                            stroke="var(--surface)"
+                            strokeWidth={0.8}
+                          />
+                        );
+                      })}
+                      <IsoChip
+                        x={bx + BLOCK_W / 2}
+                        y={by + BLOCK_D / 2}
+                        s={S}
+                        h={isActive ? 34 : 24}
+                        label={l.id}
+                        value={`${l.oee.toFixed(0)}%`}
+                        color={TIER_HEX[tierOf(l.oee)]}
+                      />
+                    </g>
+                  );
+                })}
+              </IsoScene>
+            </ZoomableMap>
 
-          {selected && (
-            <div className="absolute right-4 top-14 w-64 rounded-lg border border-border bg-surface p-3 shadow-lg">
+            <MapStatusLegendOverlay />
+            <MapHoverTooltip info={tooltip} />
+          </div>
+
+          {activeLine && (
+            <div
+              className="pointer-events-auto absolute right-4 top-4 z-30 w-64 rounded-lg border border-border bg-surface/95 p-3 shadow-xl backdrop-blur-sm"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onMouseEnter={() => {
+                if (!selected && hovered) {
+                  setSelected(hovered);
+                }
+              }}
+            >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-sm font-semibold">{selected.id}</span>
-                <StatusPill status={statusForLine(selected)} />
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-semibold">{activeLine.id}</span>
+                  <StatusPill status={statusForLine(activeLine)} />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelected(null);
+                    setHovered(null);
+                  }}
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+                  aria-label="Close line tooltip"
+                >
+                  <X className="size-3.5" />
+                </button>
               </div>
               <dl className="mt-2 space-y-1 text-[11px]">
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">OEE</dt>
-                  <dd className="font-mono">{selected.oee.toFixed(1)}%</dd>
+                  <dd className="font-mono">{activeLine.oee.toFixed(1)}%</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Output</dt>
                   <dd className="font-mono">
-                    {selected.outputActual.toLocaleString()} /{" "}
-                    {selected.outputTarget.toLocaleString()}
+                    {activeLine.outputActual.toLocaleString()} /{" "}
+                    {activeLine.outputTarget.toLocaleString()}
                   </dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Machines</dt>
-                  <dd className="font-mono">{selected.machines.length}</dd>
+                  <dd className="font-mono">{activeLine.machines.length}</dd>
                 </div>
-                {selected.fault && (
+                {activeLine.fault && (
                   <div className="rounded bg-tier-bad/10 px-2 py-1 text-tier-bad">
-                    {selected.fault}
+                    {activeLine.fault}
                   </div>
                 )}
               </dl>
               <div className="mt-2 flex flex-wrap gap-1">
-                {selected.machines.map((m) => (
+                {activeLine.machines.map((m) => (
                   <span
                     key={m.id}
                     className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px]"
@@ -318,61 +393,96 @@ function ZoneContent({
                   </span>
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={() =>
-                  navigate({
-                    to: "/live/$plantId/$zoneId/$lineId",
-                    params: { plantId, zoneId, lineId: selected.id },
-                  })
-                }
-                className="mt-2 w-full rounded-md bg-primary px-2 py-1.5 text-[11px] font-medium text-primary-foreground"
+              <Link
+                to="/live/$plantId/$zoneId/$lineId"
+                params={{ plantId, zoneId, lineId: activeLine.id }}
+                className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 active:bg-primary/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
               >
-                Click to open line detail →
-              </button>
+                <span>Click to open line detail →</span>
+              </Link>
             </div>
           )}
         </Panel>
       </main>
       <Dialog open={showIssues} onOpenChange={setShowIssues}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Lines requiring attention</DialogTitle>
+            <DialogTitle>Lines Requiring Attention</DialogTitle>
             <DialogDescription>
-              Current Down, Slow, and Idle lines in {zone.name}, sorted by operational priority.
+              Current Down, Slow, and Idle lines in {zone.name} with real-time operational status.
             </DialogDescription>
           </DialogHeader>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Line Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Downtime Reason</TableHead>
-                <TableHead className="text-right">Duration</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {issues.map((issue) => (
-                <TableRow key={issue.line.id}>
-                  <TableCell className="font-mono font-semibold">{issue.line.id}</TableCell>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "inline-flex rounded px-2 py-0.5 text-[10px] font-semibold uppercase",
-                        issue.status === "down" && "bg-tier-bad/15 text-tier-bad",
-                        issue.status === "slow" && "bg-tier-warn/20 text-tier-warn",
-                        issue.status === "idle" && "bg-grid text-muted-foreground",
-                      )}
-                    >
-                      {issue.status}
-                    </span>
-                  </TableCell>
-                  <TableCell>{issue.reason}</TableCell>
-                  <TableCell className="text-right font-mono">{issue.duration} mins</TableCell>
+          <div className="rounded-md border border-border overflow-hidden">
+            <Table>
+              <TableHeader className="bg-muted/40">
+                <TableRow>
+                  <TableHead className="font-semibold text-xs text-foreground">Line Name</TableHead>
+                  <TableHead className="font-semibold text-xs text-foreground">
+                    Status Badge
+                  </TableHead>
+                  <TableHead className="font-semibold text-xs text-foreground">
+                    Downtime Reason
+                  </TableHead>
+                  <TableHead className="text-right font-semibold text-xs text-foreground">
+                    Duration
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {issues.map((issue) => (
+                  <TableRow
+                    key={issue.line.id}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => {
+                      setShowIssues(false);
+                      navigate({
+                        to: "/live/$plantId/$zoneId/$lineId",
+                        params: { plantId, zoneId, lineId: issue.line.id },
+                      });
+                    }}
+                  >
+                    <TableCell className="font-mono font-semibold text-xs text-foreground">
+                      <span className="hover:underline">{issue.line.id}</span>
+                    </TableCell>
+                    <TableCell>
+                      {issue.status === "down" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-950/60 dark:text-red-400 border border-red-200 dark:border-red-900/60">
+                          <span className="size-1.5 rounded-full bg-red-600 dark:bg-red-400" />
+                          Down
+                        </span>
+                      )}
+                      {issue.status === "slow" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                          <span className="size-1.5 rounded-full bg-amber-600 dark:bg-amber-400" />
+                          Slow
+                        </span>
+                      )}
+                      {issue.status === "idle" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          <span className="size-1.5 rounded-full bg-slate-500" />
+                          Idle
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-foreground">{issue.reason}</TableCell>
+                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                      {issue.duration}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {issues.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={4}
+                      className="h-20 text-center text-xs text-muted-foreground"
+                    >
+                      All lines are running normally.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

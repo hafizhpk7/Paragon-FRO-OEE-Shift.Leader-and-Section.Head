@@ -1,9 +1,17 @@
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { TrendChart } from "@/components/oee/charts";
-import { IsoBlock, IsoChip, IsoGround, IsoScene } from "@/components/oee/iso";
 import {
+  IsoBlock,
+  IsoChip,
+  IsoGround,
+  IsoScene,
+  MapHoverTooltip,
+  type MapTooltipInfo,
+} from "@/components/oee/iso";
+import {
+  ComparisonLabel,
   Delta,
   EmptyState,
   KpiCard,
@@ -12,9 +20,10 @@ import {
   StatusLegend,
   StatusPill,
 } from "@/components/oee/ui";
-import { STATUS_HEX, TIER_HEX, tierOf } from "@/lib/oee/config";
+import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { bucketsFor, getLine, getZone, lineAlarms, trendSeries } from "@/lib/oee/data";
 import type { PeriodId } from "@/lib/oee/filters";
+import { comparisonContext, useLiveLineState } from "@/lib/oee/live-display";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/live/$plantId/$zoneId/$lineId/")({
@@ -39,9 +48,13 @@ export const Route = createFileRoute("/live/$plantId/$zoneId/$lineId/")({
 function LineDetail() {
   const { plantId, zoneId, lineId } = useParams({ from: "/live/$plantId/$zoneId/$lineId/" });
   const [period, setPeriod] = useState<PeriodId>("live");
+  const [tooltip, setTooltip] = useState<MapTooltipInfo | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const zone = getZone(plantId, zoneId);
   const line = getLine(plantId, zoneId, lineId);
+  const liveState = useLiveLineState(period, plantId, zoneId, lineId);
+  const liveLine = liveState.line;
 
   if (!zone || !line) {
     return (
@@ -52,19 +65,20 @@ function LineDetail() {
   }
 
   const buckets = bucketsFor(60, 1);
-  const oeeTrend = trendSeries(`${line.id}-oee`, buckets, ["OEE"], line.oee, 7);
+  const oeeTrend = trendSeries(`${line.id}-oee`, buckets, ["OEE"], liveLine.oee, 7);
   const outputTrend = buckets.map((label, i) => ({
     label,
     "Cumulative %": Math.round(Math.min(100, ((i + 1) / buckets.length) * 100 * 0.92) * 10) / 10,
     Plan: Math.round(((i + 1) / buckets.length) * 100),
   }));
-  const speedTrend = trendSeries(`${line.id}-spd`, buckets, ["Speed"], line.speed, 14);
+  const speedTrend = trendSeries(`${line.id}-spd`, buckets, ["Speed"], liveLine.speed, 14);
   const alarms = lineAlarms(line);
 
   // "Behind pace" = actual vs a simple linear projection of the shift target (§7 point 13).
-  const elapsedRatio = line.runningMinutes / 480;
+  const elapsedRatio = liveLine.runningMinutes / 480;
   const paceTarget = Math.round(line.outputTarget * elapsedRatio);
-  const behind = line.outputActual < paceTarget;
+  const behind = liveLine.outputActual < paceTarget;
+  const compareLabel = comparisonContext(period);
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
@@ -77,21 +91,30 @@ function LineDetail() {
         ]}
         period={period}
         onPeriod={setPeriod}
-        meta={period === "live" ? "LIVE · auto refresh" : "Static snapshot"}
         back={{ label: zone.name, to: "/live/$plantId/$zoneId", params: { plantId, zoneId } }}
       />
       <main className="flex flex-1 flex-col gap-3 p-4">
         <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
           <KpiCard
             label="Line OEE"
-            value={line.oee.toFixed(1)}
+            value={liveLine.oee.toFixed(1)}
             unit="%"
-            caption={<Delta value={line.oee - zone.oee} />}
+            caption={<Delta value={liveState.deltas.oee} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
           />
-          <KpiCard label="Performance" value={line.performance.toFixed(1)} unit="%" />
+          <KpiCard
+            label="Performance"
+            value={liveLine.performance.toFixed(1)}
+            unit="%"
+            caption={<Delta value={liveState.deltas.performance} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
+          />
           <KpiCard
             label="Output"
-            value={line.outputActual.toLocaleString()}
+            value={liveLine.outputActual.toLocaleString()}
+            isUpdating={liveState.isUpdating}
             caption={
               behind ? (
                 <span className="text-tier-bad">
@@ -104,14 +127,16 @@ function LineDetail() {
           />
           <KpiCard
             label="Running time"
-            value={`${Math.floor(line.runningMinutes / 60)}h ${line.runningMinutes % 60}m`}
+            value={`${Math.floor(liveLine.runningMinutes / 60)}h ${Math.floor(liveLine.runningMinutes % 60)}m`}
           />
           <KpiCard
             label="Status"
-            value={line.status.toUpperCase()}
-            tone={line.status === "down" ? "bad" : line.status === "slow" ? "warn" : "good"}
+            value={liveLine.status.toUpperCase()}
+            tone={liveLine.status === "down" ? "bad" : liveLine.status === "slow" ? "warn" : "good"}
             caption={
-              line.status === "down" ? `caused by ${line.machines[0]?.id}` : "all machines nominal"
+              liveLine.status === "down"
+                ? `caused by ${line.machines[0]?.id}`
+                : "all machines nominal"
             }
           />
         </div>
@@ -124,7 +149,7 @@ function LineDetail() {
                 ["PO / Batch", `${line.po} · ${line.batch}`],
                 [
                   "Shift output",
-                  `${line.outputActual.toLocaleString()} / ${line.outputTarget.toLocaleString()}`,
+                  `${liveLine.outputActual.toLocaleString()} / ${line.outputTarget.toLocaleString()}`,
                 ],
                 ["MPQ target", `${line.mpqTarget} ppm`],
                 ["Zone · Shift", `${zone.name} · Shift 1`],
@@ -142,24 +167,57 @@ function LineDetail() {
             title="Machine chain"
             subtitle="Static snapshot — not clickable (read-only)"
             action={<StatusLegend />}
-            bodyClassName="p-0"
+            bodyClassName="relative p-0"
           >
-            <div className="h-[210px] w-full">
-              <IsoScene viewBox="-60 -75 235 195">
-                <IsoGround cols={line.machines.length + 1} rows={1.4} s={38} />
+            <div ref={mapContainerRef} className="relative h-[210px] w-full overflow-hidden">
+              <IsoScene viewBox="-60 -75 255 195">
+                <IsoGround cols={line.machines.length * 1.35 + 0.6} rows={1.5} s={38} />
                 {line.machines.map((m, i) => (
                   <g key={m.id}>
                     <IsoBlock
-                      x={0.4 + i * 1.1}
+                      x={0.4 + i * 1.35}
                       y={0.2}
                       w={0.85}
                       d={0.85}
                       h={26}
                       s={38}
                       color={STATUS_HEX[m.status]}
+                      onMouseEnter={(e) => {
+                        const rect = mapContainerRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setTooltip({
+                            title: `${m.id} (${m.type})`,
+                            subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m`,
+                            status: m.status,
+                            statusLabel: STATUS_LABEL[m.status],
+                            oee: m.oee,
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top,
+                          });
+                        }
+                      }}
+                      onMouseMove={(e) => {
+                        const rect = mapContainerRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setTooltip((curr) =>
+                            curr
+                              ? { ...curr, x: e.clientX - rect.left, y: e.clientY - rect.top }
+                              : {
+                                  title: `${m.id} (${m.type})`,
+                                  subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m`,
+                                  status: m.status,
+                                  statusLabel: STATUS_LABEL[m.status],
+                                  oee: m.oee,
+                                  x: e.clientX - rect.left,
+                                  y: e.clientY - rect.top,
+                                },
+                          );
+                        }
+                      }}
+                      onMouseLeave={() => setTooltip(null)}
                     />
                     <IsoChip
-                      x={0.82 + i * 1.1}
+                      x={0.82 + i * 1.35}
                       y={0.62}
                       s={38}
                       h={30}
@@ -170,6 +228,8 @@ function LineDetail() {
                   </g>
                 ))}
               </IsoScene>
+
+              <MapHoverTooltip info={tooltip} />
             </div>
             <div className="border-t border-border px-4 py-2">
               <StatusPill status={line.status} />

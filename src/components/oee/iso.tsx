@@ -6,6 +6,7 @@
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 
+import { STATUS_DOT, STATUS_LABEL, TIER_TEXT, tierOf, type Status } from "@/lib/oee/config";
 import { cn } from "@/lib/utils";
 
 const MIN_ZOOM = 0.7;
@@ -196,7 +197,11 @@ export function IsoBlock({
   s = 26,
   color,
   onClick,
+  onMouseEnter,
+  onMouseLeave,
+  onMouseMove,
   dim,
+  className,
 }: {
   x: number;
   y: number;
@@ -206,7 +211,11 @@ export function IsoBlock({
   s?: number;
   color: string;
   onClick?: () => void;
+  onMouseEnter?: (e: React.MouseEvent<SVGGElement>) => void;
+  onMouseLeave?: (e: React.MouseEvent<SVGGElement>) => void;
+  onMouseMove?: (e: React.MouseEvent<SVGGElement>) => void;
   dim?: boolean;
+  className?: string;
 }) {
   const t1 = iso(x, y, h, s);
   const t2 = iso(x + w, y, h, s);
@@ -219,13 +228,154 @@ export function IsoBlock({
   return (
     <g
       onClick={onClick}
-      className={onClick ? "cursor-pointer transition-opacity hover:opacity-80" : undefined}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onMouseMove={onMouseMove}
+      className={cn(
+        onClick || onMouseEnter || onMouseMove
+          ? "cursor-pointer transition-opacity hover:opacity-85"
+          : undefined,
+        className,
+      )}
       opacity={dim ? 0.5 : 1}
     >
       <polygon points={pts([t1, t2, t3, t4])} fill={color} />
       <polygon points={pts([t4, t3, b3, b4])} fill={color} style={{ filter: "brightness(0.78)" }} />
       <polygon points={pts([t2, t3, b3, b2])} fill={color} style={{ filter: "brightness(0.6)" }} />
     </g>
+  );
+}
+
+export type MapTooltipInfo = {
+  title: string;
+  subtitle?: string;
+  status?: Status;
+  statusLabel?: string;
+  oee: number;
+  x: number;
+  y: number;
+};
+
+export function MapHoverTooltip({ info }: { info: MapTooltipInfo | null }) {
+  if (!info) return null;
+  const tier = tierOf(info.oee);
+  const isNearTop = info.y < 110;
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute z-50 -translate-x-1/2 transition-opacity duration-150 ease-out select-none",
+        isNearTop ? "translate-y-4" : "-translate-y-[calc(100%+14px)]",
+      )}
+      style={{ left: `${info.x}px`, top: `${info.y}px` }}
+    >
+      <div className="flex min-w-[190px] flex-col gap-1.5 rounded-lg border border-border bg-surface/95 p-3 shadow-xl backdrop-blur-md">
+        <div className="flex items-center justify-between gap-2.5">
+          <span className="font-mono text-xs font-semibold tracking-tight text-foreground">
+            {info.title}
+          </span>
+          {info.status && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                info.status === "running" && "bg-status-running/15 text-status-running",
+                info.status === "slow" && "bg-status-slow/20 text-status-slow",
+                info.status === "down" && "bg-status-down/15 text-status-down",
+                info.status === "idle" && "bg-status-idle/20 text-muted-foreground",
+              )}
+            >
+              <span className={cn("size-1.5 rounded-full", STATUS_DOT[info.status])} />
+              {info.statusLabel ?? STATUS_LABEL[info.status]}
+            </span>
+          )}
+        </div>
+        {info.subtitle && <p className="text-[10px] text-muted-foreground">{info.subtitle}</p>}
+        <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
+          <span className="text-muted-foreground">Current OEE</span>
+          <span className={cn("font-mono font-bold", TIER_TEXT[tier])}>{info.oee.toFixed(1)}%</span>
+        </div>
+      </div>
+      {/* Tooltip caret */}
+      <div
+        className={cn(
+          "mx-auto size-0 border-x-4 border-x-transparent",
+          isNearTop
+            ? "-order-1 -mt-1 mb-0 border-b-4 border-b-border"
+            : "border-t-4 border-t-border",
+        )}
+      />
+    </div>
+  );
+}
+
+export function MapStatusLegendOverlay({ className }: { className?: string }) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-auto absolute bottom-4 left-4 z-10 max-w-[280px] rounded-md border border-border bg-background/90 p-3 text-xs shadow-sm backdrop-blur transition-all duration-200 select-none",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-1.5 font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">
+        <span>Machine Status Legend</span>
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          className="text-[10px] lowercase text-primary hover:underline cursor-pointer"
+        >
+          {collapsed ? "expand" : "hide"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div className="mt-2 flex flex-col gap-1.5 text-[11px] leading-snug">
+          <div className="flex items-start gap-2">
+            <span className="mt-1 size-2 rounded-full bg-status-running ring-1 ring-status-running/30 shrink-0" />
+            <div>
+              <span className="font-semibold text-foreground">Green (Running):</span>{" "}
+              <span className="text-muted-foreground">
+                Machine running, output matches standard speed.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 size-2 rounded-full bg-status-slow ring-1 ring-status-slow/30 shrink-0" />
+            <div>
+              <span className="font-semibold text-foreground">Orange (Speed Loss):</span>{" "}
+              <span className="text-muted-foreground">
+                Machine running, output below standard speed.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 size-2 rounded-full bg-loss-minor-stop ring-1 ring-loss-minor-stop/30 shrink-0" />
+            <div>
+              <span className="font-semibold text-foreground">Yellow (Minor Stop):</span>{" "}
+              <span className="text-muted-foreground">
+                Machine running, no output for &lt; 10 mins.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 size-2 rounded-full bg-status-down ring-1 ring-status-down/30 shrink-0" />
+            <div>
+              <span className="font-semibold text-foreground">Red (Breakdown):</span>{" "}
+              <span className="text-muted-foreground">
+                Machine running, no output for &gt; 10 mins.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 size-2 rounded-full bg-status-idle ring-1 ring-status-idle/30 shrink-0" />
+            <div>
+              <span className="font-semibold text-foreground">Gray (Off):</span>{" "}
+              <span className="text-muted-foreground">Machine off or no schedule.</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
