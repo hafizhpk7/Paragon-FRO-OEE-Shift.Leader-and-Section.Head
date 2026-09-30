@@ -1,7 +1,7 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { IsoBlock, IsoGround, IsoScene } from "@/components/oee/iso";
+import { MachineView3D } from "@/components/oee/three/machine-view-3d";
 import {
   ComparisonLabel,
   Delta,
@@ -123,22 +123,13 @@ function MachineDetail() {
         </div>
 
         <div className="grid w-full flex-1 gap-3 grid-cols-1 lg:grid-cols-2">
-          <Panel title={`${machine.id} · ${machine.type}`} bodyClassName="p-0">
-            <div className="h-[230px] w-full">
-              <IsoScene viewBox="-110 -120 220 245">
-                <IsoGround cols={2.4} rows={2.4} s={46} />
-                <IsoBlock x={0.3} y={0.3} w={1.6} d={1.6} h={30} s={46} color="var(--grid)" />
-                <IsoBlock
-                  x={0.55}
-                  y={0.55}
-                  w={1.1}
-                  d={1.1}
-                  h={74}
-                  s={46}
-                  color={STATUS_HEX[machine.status]}
-                />
-                <IsoBlock x={0.9} y={0.9} w={0.4} d={0.4} h={98} s={46} color="var(--primary)" />
-              </IsoScene>
+          <Panel title={`${machine.id} · ${machine.type}`} bodyClassName="p-0 flex flex-col">
+            <div className="w-full min-h-[420px] flex-1">
+              <MachineView3D
+                machineCode={machine.id}
+                machineName={machine.name}
+                status={machine.status}
+              />
             </div>
             <div className="grid grid-cols-3 gap-2 border-t border-border p-3 text-[11px]">
               <div className="rounded border border-border px-2 py-1.5">

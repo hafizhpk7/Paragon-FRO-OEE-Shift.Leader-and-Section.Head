@@ -10,6 +10,7 @@ import {
   MapHoverTooltip,
   type MapTooltipInfo,
 } from "@/components/oee/iso";
+import { LineChainView3D } from "@/components/oee/three/line-chain-view-3d";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ComparisonLabel,
@@ -168,77 +169,10 @@ function LineDetail() {
             title="Machine chain"
             subtitle="Click any machine for real-time sensor telemetry"
             action={<StatusLegend />}
-            bodyClassName="relative p-0"
+            bodyClassName="relative p-0 flex flex-col"
           >
-            <div ref={mapContainerRef} className="relative h-[210px] w-full overflow-hidden">
-              <IsoScene
-                viewBox={`${-80} ${-80} ${Math.max(300, line.machines.length * 68 + 120)} 210`}
-              >
-                <IsoGround cols={line.machines.length * 1.35 + 0.6} rows={1.5} s={38} />
-                {line.machines.map((m, i) => (
-                  <g key={m.id}>
-                    <IsoBlock
-                      x={0.4 + i * 1.35}
-                      y={0.2}
-                      w={0.85}
-                      d={0.85}
-                      h={26}
-                      s={38}
-                      color={STATUS_HEX[m.status]}
-                      onClick={() =>
-                        navigate({
-                          to: "/live/$plantId/$zoneId/$lineId/$machineId",
-                          params: { plantId, zoneId, lineId, machineId: m.id },
-                        })
-                      }
-                      onMouseEnter={(e) => {
-                        const rect = mapContainerRef.current?.getBoundingClientRect();
-                        if (rect) {
-                          setTooltip({
-                            title: `${m.id} (${m.type})`,
-                            subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m · Click for sensors`,
-                            status: m.status,
-                            statusLabel: STATUS_LABEL[m.status],
-                            oee: m.oee,
-                            x: e.clientX - rect.left,
-                            y: e.clientY - rect.top,
-                          });
-                        }
-                      }}
-                      onMouseMove={(e) => {
-                        const rect = mapContainerRef.current?.getBoundingClientRect();
-                        if (rect) {
-                          setTooltip((curr) =>
-                            curr
-                              ? { ...curr, x: e.clientX - rect.left, y: e.clientY - rect.top }
-                              : {
-                                  title: `${m.id} (${m.type})`,
-                                  subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m · Click for sensors`,
-                                  status: m.status,
-                                  statusLabel: STATUS_LABEL[m.status],
-                                  oee: m.oee,
-                                  x: e.clientX - rect.left,
-                                  y: e.clientY - rect.top,
-                                },
-                          );
-                        }
-                      }}
-                      onMouseLeave={() => setTooltip(null)}
-                    />
-                    <IsoChip
-                      x={0.82 + i * 1.35}
-                      y={0.62}
-                      s={38}
-                      h={30}
-                      label={m.id}
-                      value={`${m.oee.toFixed(0)}%`}
-                      color={TIER_HEX[tierOf(m.oee)]}
-                    />
-                  </g>
-                ))}
-              </IsoScene>
-
-              <MapHoverTooltip info={tooltip} />
+            <div className="relative min-h-[340px] w-full flex-1 overflow-hidden">
+              <LineChainView3D plantId={plantId} zoneId={zoneId} line={line} />
             </div>
             <div className="border-t border-border px-4 py-2">
               <StatusPill status={line.status} />

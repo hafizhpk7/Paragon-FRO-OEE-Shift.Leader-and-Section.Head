@@ -1,5 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -17,15 +16,8 @@ export const Route = createFileRoute("/")({
       },
     ],
   }),
-  component: HomeRedirect,
+  beforeLoad: () => {
+    throw redirect({ to: "/live" });
+  },
+  component: () => null,
 });
-
-function HomeRedirect() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    navigate({ to: "/live", replace: true });
-  }, [navigate]);
-
-  return null;
-}

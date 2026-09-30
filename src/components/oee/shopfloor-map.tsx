@@ -214,25 +214,23 @@ export function ShopfloorMap({
                   <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider pl-1">
                     Left Bay (Lines 05, 03, 04, 07, 10, 12, 02)
                   </div>
-                  {["TUP05", "TUP03", "TUP04", "TUP07", "TUP10", "TUP12", "TUP02"].map(
-                    (lineId) => {
-                      const line = zoneA.lines.find((l) => l.id === lineId);
-                      if (!line) return null;
-                      return (
-                        <LineCard
-                          key={line.id}
-                          plantId={plantId}
-                          zoneId="A"
-                          line={line}
-                          status={getStatus(line)}
-                          getMachineStatus={(m) => getMachineStatus(line, m)}
-                          isActive={activeLineId === line.id}
-                          onSelectLine={onSelectLine}
-                          onHoverMachine={setHoveredMachineKey}
-                        />
-                      );
-                    },
-                  )}
+                  {["TUP05", "TUP03", "TUP04", "TUP07", "TUP10", "TUP12", "TUP02"].map((lineId) => {
+                    const line = zoneA.lines.find((l) => l.id === lineId);
+                    if (!line) return null;
+                    return (
+                      <LineCard
+                        key={line.id}
+                        plantId={plantId}
+                        zoneId="A"
+                        line={line}
+                        status={getStatus(line)}
+                        getMachineStatus={(m) => getMachineStatus(line, m)}
+                        isActive={activeLineId === line.id}
+                        onSelectLine={onSelectLine}
+                        onHoverMachine={setHoveredMachineKey}
+                      />
+                    );
+                  })}
                 </div>
 
                 {/* Column 2: Middle Column (BLP03, TUP11, TUP09, TUP06, TUP08, TUP14, TUP01) */}
@@ -240,25 +238,23 @@ export function ShopfloorMap({
                   <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider pl-1">
                     Mid Bay (BLP03, Lines 11, 09, 06, 08, 14, 01)
                   </div>
-                  {["BLP03", "TUP11", "TUP09", "TUP06", "TUP08", "TUP14", "TUP01"].map(
-                    (lineId) => {
-                      const line = zoneA.lines.find((l) => l.id === lineId);
-                      if (!line) return null;
-                      return (
-                        <LineCard
-                          key={line.id}
-                          plantId={plantId}
-                          zoneId="A"
-                          line={line}
-                          status={getStatus(line)}
-                          getMachineStatus={(m) => getMachineStatus(line, m)}
-                          isActive={activeLineId === line.id}
-                          onSelectLine={onSelectLine}
-                          onHoverMachine={setHoveredMachineKey}
-                        />
-                      );
-                    },
-                  )}
+                  {["BLP03", "TUP11", "TUP09", "TUP06", "TUP08", "TUP14", "TUP01"].map((lineId) => {
+                    const line = zoneA.lines.find((l) => l.id === lineId);
+                    if (!line) return null;
+                    return (
+                      <LineCard
+                        key={line.id}
+                        plantId={plantId}
+                        zoneId="A"
+                        line={line}
+                        status={getStatus(line)}
+                        getMachineStatus={(m) => getMachineStatus(line, m)}
+                        isActive={activeLineId === line.id}
+                        onSelectLine={onSelectLine}
+                        onHoverMachine={setHoveredMachineKey}
+                      />
+                    );
+                  })}
                 </div>
               </div>
 

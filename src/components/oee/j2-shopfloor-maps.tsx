@@ -22,6 +22,7 @@ import {
   ZONE_BLOCK_SIZE,
   type J2LineConfig,
 } from "@/lib/oee/j2-layout-config";
+import { MODEL_REGISTRY, resolveModelKey } from "@/lib/oee/models";
 import { cn } from "@/lib/utils";
 import { MapStatusLegendOverlay, ZoomableMap } from "./iso";
 
@@ -819,6 +820,10 @@ export function J2PlantZoneMap({
             <p className="text-[11px] font-medium text-muted-foreground">
               {hoveredMachine.zoneName} ·{" "}
               <span className="text-foreground font-semibold">{hoveredMachine.machineCode}</span>
+              <span className="block text-[10px] text-muted-foreground/80 font-normal">
+                {MODEL_REGISTRY[resolveModelKey(hoveredMachine.machineCode)]?.label ??
+                  "Production Machine"}
+              </span>
             </p>
             <div className="flex items-center justify-between pt-0.5 text-[11px]">
               <span className="text-muted-foreground">OEE</span>
@@ -1444,6 +1449,10 @@ export function J2ZoneProductionFloorMap({
             </div>
             <p className="text-[11px] text-muted-foreground">
               {hoveredMachine.machineName} ({hoveredMachine.zoneName})
+              <span className="block text-[10px] text-muted-foreground/80 font-normal">
+                {MODEL_REGISTRY[resolveModelKey(hoveredMachine.machineCode)]?.label ??
+                  "Production Machine"}
+              </span>
             </p>
             <div className="flex items-center justify-between pt-0.5 text-[11px]">
               <span className="text-muted-foreground">Machine OEE</span>
