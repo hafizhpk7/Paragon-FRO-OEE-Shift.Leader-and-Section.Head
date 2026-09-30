@@ -12,6 +12,7 @@ import {
   MapStatusLegendOverlay,
   type MapTooltipInfo,
 } from "@/components/oee/iso";
+import { J2PlantZoneMap } from "@/components/oee/j2-shopfloor-maps";
 import {
   ComparisonLabel,
   Delta,
@@ -146,92 +147,100 @@ function PlantView() {
             subtitle="Click a zone to open Zone View"
             bodyClassName="relative p-0 overflow-hidden"
           >
-            <div
-              ref={mapContainerRef}
-              className="relative h-full w-full min-h-[400px] md:min-h-[500px] flex-1"
-            >
-              <Compass />
-              <ZoomableMap className="min-h-[400px] md:min-h-[500px] flex-1">
-                <IsoScene viewBox="-270 -115 560 440">
-                  <IsoGround cols={plant.zones.length * 2.5 + 0.8} rows={12 * 0.72 + 0.8} s={32} />
-                  {plant.zones.map((z, zi) =>
-                    z.lines.slice(0, 12).map((l, li) => {
-                      const x = 0.6 + zi * 2.5;
-                      const y = 0.5 + li * 0.72;
+            {plant.id === "J2" ? (
+              <J2PlantZoneMap plant={plant} />
+            ) : (
+              <div
+                ref={mapContainerRef}
+                className="relative h-full w-full min-h-[400px] md:min-h-[500px] flex-1"
+              >
+                <Compass />
+                <ZoomableMap className="min-h-[400px] md:min-h-[500px] flex-1">
+                  <IsoScene viewBox="-270 -115 560 440">
+                    <IsoGround
+                      cols={plant.zones.length * 2.5 + 0.8}
+                      rows={12 * 0.72 + 0.8}
+                      s={32}
+                    />
+                    {plant.zones.map((z, zi) =>
+                      z.lines.slice(0, 12).map((l, li) => {
+                        const x = 0.6 + zi * 2.5;
+                        const y = 0.5 + li * 0.72;
+                        return (
+                          <IsoBlock
+                            key={`${z.id}-${l.id}`}
+                            x={x}
+                            y={y}
+                            w={1.5}
+                            d={0.38}
+                            h={14 + l.oee * 0.4}
+                            s={32}
+                            color={STATUS_HEX[l.status]}
+                            onClick={() =>
+                              navigate({
+                                to: "/live/$plantId/$zoneId",
+                                params: { plantId: plant.id, zoneId: z.id },
+                              })
+                            }
+                            onMouseEnter={(e) => {
+                              const rect = mapContainerRef.current?.getBoundingClientRect();
+                              if (rect) {
+                                setTooltip({
+                                  title: `Line ${l.id}`,
+                                  subtitle: `${z.name} · ${l.machines.length} machines`,
+                                  status: l.status,
+                                  statusLabel: STATUS_LABEL[l.status],
+                                  oee: l.oee,
+                                  x: e.clientX - rect.left,
+                                  y: e.clientY - rect.top,
+                                });
+                              }
+                            }}
+                            onMouseMove={(e) => {
+                              const rect = mapContainerRef.current?.getBoundingClientRect();
+                              if (rect) {
+                                setTooltip((curr) =>
+                                  curr
+                                    ? { ...curr, x: e.clientX - rect.left, y: e.clientY - rect.top }
+                                    : {
+                                        title: `Line ${l.id}`,
+                                        subtitle: `${z.name} · ${l.machines.length} machines`,
+                                        status: l.status,
+                                        statusLabel: STATUS_LABEL[l.status],
+                                        oee: l.oee,
+                                        x: e.clientX - rect.left,
+                                        y: e.clientY - rect.top,
+                                      },
+                                );
+                              }
+                            }}
+                            onMouseLeave={() => setTooltip(null)}
+                          />
+                        );
+                      }),
+                    )}
+                    {plant.zones.map((z, zi) => {
+                      const zoneOee = liveState.zones[z.id]?.oee ?? z.oee;
                       return (
-                        <IsoBlock
-                          key={`${z.id}-${l.id}`}
-                          x={x}
-                          y={y}
-                          w={1.5}
-                          d={0.38}
-                          h={14 + l.oee * 0.4}
+                        <IsoChip
+                          key={z.id}
+                          x={0.6 + zi * 2.5 + 0.75}
+                          y={0.2}
                           s={32}
-                          color={STATUS_HEX[l.status]}
-                          onClick={() =>
-                            navigate({
-                              to: "/live/$plantId/$zoneId",
-                              params: { plantId: plant.id, zoneId: z.id },
-                            })
-                          }
-                          onMouseEnter={(e) => {
-                            const rect = mapContainerRef.current?.getBoundingClientRect();
-                            if (rect) {
-                              setTooltip({
-                                title: `Line ${l.id}`,
-                                subtitle: `${z.name} · ${l.machines.length} machines`,
-                                status: l.status,
-                                statusLabel: STATUS_LABEL[l.status],
-                                oee: l.oee,
-                                x: e.clientX - rect.left,
-                                y: e.clientY - rect.top,
-                              });
-                            }
-                          }}
-                          onMouseMove={(e) => {
-                            const rect = mapContainerRef.current?.getBoundingClientRect();
-                            if (rect) {
-                              setTooltip((curr) =>
-                                curr
-                                  ? { ...curr, x: e.clientX - rect.left, y: e.clientY - rect.top }
-                                  : {
-                                      title: `Line ${l.id}`,
-                                      subtitle: `${z.name} · ${l.machines.length} machines`,
-                                      status: l.status,
-                                      statusLabel: STATUS_LABEL[l.status],
-                                      oee: l.oee,
-                                      x: e.clientX - rect.left,
-                                      y: e.clientY - rect.top,
-                                    },
-                              );
-                            }
-                          }}
-                          onMouseLeave={() => setTooltip(null)}
+                          h={75}
+                          label={z.name}
+                          value={`${zoneOee.toFixed(0)}%`}
+                          color={TIER_HEX[tierOf(zoneOee)]}
                         />
                       );
-                    }),
-                  )}
-                  {plant.zones.map((z, zi) => {
-                    const zoneOee = liveState.zones[z.id]?.oee ?? z.oee;
-                    return (
-                      <IsoChip
-                        key={z.id}
-                        x={0.6 + zi * 2.5 + 0.75}
-                        y={0.2}
-                        s={32}
-                        h={75}
-                        label={z.name}
-                        value={`${zoneOee.toFixed(0)}%`}
-                        color={TIER_HEX[tierOf(zoneOee)]}
-                      />
-                    );
-                  })}
-                </IsoScene>
-              </ZoomableMap>
+                    })}
+                  </IsoScene>
+                </ZoomableMap>
 
-              <MapStatusLegendOverlay />
-              <MapHoverTooltip info={tooltip} />
-            </div>
+                <MapStatusLegendOverlay />
+                <MapHoverTooltip info={tooltip} />
+              </div>
+            )}
           </Panel>
 
           <Panel

@@ -1,7 +1,5 @@
-import { Navigate, createFileRoute } from "@tanstack/react-router";
-
-import { useApp } from "@/lib/oee/app-context";
-import { DEFAULT_PLANT_ID, DEFAULT_ZONE_ID } from "@/lib/oee/data";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -10,32 +8,24 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Paragon OEE FRO dashboard prototype entry point: redirects to the Live Monitor dashboard for Shift Leader and Section Head.",
+          "Paragon OEE FRO dashboard prototype entry point: redirects to the Live Monitor dashboard.",
       },
       { property: "og:title", content: "Paragon OEE FRO Dashboard — Live Monitor" },
       {
         property: "og:description",
-        content:
-          "Live monitor drill-down and OEE analytics prototype for Shift Leader and Section Head.",
+        content: "Live monitor drill-down and OEE analytics prototype for Paragon Manufacturing.",
       },
     ],
   }),
   component: HomeRedirect,
 });
 
-// Root URL always lands on the Live Monitor dashboard.
-// Shift Leader → their zone view; Section Head → multi plant view.
 function HomeRedirect() {
-  const { role } = useApp();
+  const navigate = useNavigate();
 
-  if (role === "section-head") {
-    return <Navigate to="/live" replace />;
-  }
-  return (
-    <Navigate
-      to="/live/$plantId/$zoneId"
-      params={{ plantId: DEFAULT_PLANT_ID, zoneId: DEFAULT_ZONE_ID }}
-      replace
-    />
-  );
+  useEffect(() => {
+    navigate({ to: "/live", replace: true });
+  }, [navigate]);
+
+  return null;
 }

@@ -6,9 +6,13 @@
 
 import { SENSOR_SPEC, type LossCategory, type Status } from "./config";
 import { makeRng, pick, rand } from "./rng";
+import { J2_LINES_CONFIG, getDeterministicMachineStatus } from "./j2-layout-config";
 
 export type Machine = {
   id: string;
+  key?: string;
+  code?: string;
+  sequence?: number;
   lineId: string;
   name: string;
   type: string;
@@ -269,9 +273,139 @@ function buildPlant(id: string, name: string, block: string): Plant {
   };
 }
 
+function buildJ2Machines(lineCode: string, zoneId: string): Machine[] {
+  const lineCfg = J2_LINES_CONFIG.find((l) => l.code === lineCode);
+  if (!lineCfg) return [];
+
+  return lineCfg.machines.map((mCfg, idx) => {
+    const key = `${lineCode}-${mCfg.code}`;
+    const mock = getDeterministicMachineStatus(key);
+    const isCulprit = mock.status === "down";
+
+    return {
+      id: mCfg.code,
+      key,
+      code: mCfg.code,
+      sequence: idx + 1,
+      lineId: lineCode,
+      name: mCfg.name ?? mCfg.code,
+      type: mCfg.type ?? "Production Machine",
+      status: mock.status,
+      oee: mock.oee,
+      availability: mock.availability,
+      performance: mock.performance,
+      quality: mock.quality,
+      mttr: rand(`${key}-mttr`, 12, 68, 0),
+      mtbf: rand(`${key}-mtbf`, 180, 1400, 0),
+      stopsThisShift: rand(`${key}-stops`, isCulprit ? 4 : 0, isCulprit ? 11 : 5, 0),
+      sensors: SENSOR_SPEC.map((s) => {
+        const value = rand(`${key}-${s.key}`, s.min, s.max, s.decimals ?? 1);
+        return {
+          key: s.key,
+          label: s.label,
+          group: s.group,
+          unit: s.unit,
+          value,
+          warn: value > s.warnAbove,
+        };
+      }),
+      currentStop: isCulprit
+        ? {
+            severity: "CRITICAL",
+            fault: pick(`${key}-fault`, FAULTS),
+            startedAt: pick(`${key}-time`, ["06:12", "07:48", "09:05", "13:26", "21:34"]),
+            elapsedMinutes: rand(`${key}-elapsed`, 14, 96, 0),
+            lossPath: "Breakdown · Mechanical component · Maintenance required",
+            downstream: lineCfg.machines.slice(idx + 1).map((dm) => dm.code),
+          }
+        : undefined,
+    };
+  });
+}
+
+function buildJ2Line(lineCfg: (typeof J2_LINES_CONFIG)[number]): Line {
+  const machines = buildJ2Machines(lineCfg.code, lineCfg.zoneId);
+  const seed = `J2-${lineCfg.zoneId}-${lineCfg.code}`;
+
+  const availability = avg(machines.map((m) => m.availability));
+  const performance = avg(machines.map((m) => m.performance));
+  const quality = avg(machines.map((m) => m.quality));
+  const oee = avg(machines.map((m) => m.oee));
+
+  // Determine line status from machines
+  let status: Status = "running";
+  if (machines.some((m) => m.status === "down")) {
+    status = "down";
+  } else if (machines.some((m) => m.status === "slow")) {
+    status = "slow";
+  } else if (machines.every((m) => m.status === "idle")) {
+    status = "idle";
+  }
+
+  const outputTarget = rand(seed + "ot", 8000, 21000, 0);
+  const culprit = machines.find((m) => m.status === "down");
+
+  return {
+    id: lineCfg.code,
+    zoneId: lineCfg.zoneId,
+    plantId: "J2",
+    status,
+    availability,
+    performance,
+    quality,
+    oee,
+    outputTarget,
+    outputActual: Math.round(
+      outputTarget * (status === "down" ? 0.62 : status === "slow" ? 0.78 : 0.96),
+    ),
+    runningMinutes: rand(seed + "rm", 180, 462, 0),
+    speed: rand(seed + "sp", 108, 198, 0),
+    stdSpeed: rand(seed + "std", 160, 200, 0),
+    sku: pick(seed + "sku", SKUS),
+    po: `PO-${rand(seed + "po", 41000, 49999, 0)}`,
+    batch: `B${rand(seed + "b", 2201, 2299, 0)}`,
+    mpqTarget: rand(seed + "mpq", 150, 200, 0),
+    bottleneck: culprit?.code ?? machines[0]?.code ?? "-",
+    fault:
+      status === "down" ? (culprit?.currentStop?.fault ?? pick(seed + "lf", FAULTS)) : undefined,
+    bay: { row: Math.floor(lineCfg.rowOrder / 5), col: lineCfg.rowOrder % 5 },
+    machines,
+  };
+}
+
+function buildJ2Zone(zoneId: "A" | "B" | "C"): Zone {
+  const lineConfigs = J2_LINES_CONFIG.filter((l) => l.zoneId === zoneId);
+  const lines = lineConfigs.map(buildJ2Line);
+
+  return {
+    id: zoneId,
+    name: `Zone ${zoneId}`,
+    plantId: "J2",
+    lines,
+    oee: avg(lines.map((l) => l.oee)),
+    availability: avg(lines.map((l) => l.availability)),
+    performance: avg(lines.map((l) => l.performance)),
+    quality: avg(lines.map((l) => l.quality)),
+  };
+}
+
+function buildJ2Plant(): Plant {
+  const zones = (["A", "B", "C"] as const).map(buildJ2Zone);
+  return {
+    id: "J2",
+    name: "Jatake 2",
+    block: "Blok 7",
+    zones,
+    oee: avg(zones.map((z) => z.oee)),
+    availability: avg(zones.map((z) => z.availability)),
+    performance: avg(zones.map((z) => z.performance)),
+    quality: avg(zones.map((z) => z.quality)),
+  };
+}
+
 export const PLANTS: Plant[] = [
   buildPlant("J1", "Jatake 1", "Blok 3"),
-  buildPlant("J2", "Jatake 2", "Blok 7"),
+  buildJ2Plant(),
   buildPlant("J4", "Jatake 4", "Blok 12"),
 ];
 
@@ -304,7 +438,9 @@ export function getMachine(
   lineId: string,
   machineId: string,
 ): Machine | undefined {
-  return getLine(plantId, zoneId, lineId)?.machines.find((m) => m.id === machineId);
+  return getLine(plantId, zoneId, lineId)?.machines.find(
+    (m) => m.id === machineId || m.key === machineId || m.code === machineId,
+  );
 }
 
 export function allLines(plantId?: string, zoneIds?: string[]): Line[] {

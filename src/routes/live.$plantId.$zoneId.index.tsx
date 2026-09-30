@@ -13,6 +13,7 @@ import {
   MapStatusLegendOverlay,
   type MapTooltipInfo,
 } from "@/components/oee/iso";
+import { J2ZoneProductionFloorMap } from "@/components/oee/j2-shopfloor-maps";
 import {
   Delta,
   EmptyState,
@@ -239,102 +240,106 @@ function ZoneContent({
         <Panel
           className="flex-1 w-full min-w-0"
           title="Production Floor Map"
-          subtitle={`${zone.lines.length} lines · ${machineCount} machines · bays ${rows} × ${cols} (${rows * cols - zone.lines.length} spare)`}
+          subtitle={`${zone.lines.length} lines · ${machineCount} machines`}
           bodyClassName="relative p-0 overflow-hidden"
         >
-          <div
-            ref={mapContainerRef}
-            className="relative h-full w-full min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1"
-          >
-            <ZoomableMap className="min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1">
-              <IsoScene viewBox="-260 -100 620 460">
-                <IsoGround cols={cols * GAP_X + 0.6} rows={rows * GAP_Y + 0.6} s={S} />
-                {zone.lines.map((l, i) => {
-                  const bx = 0.5 + (i % cols) * GAP_X;
-                  const by = 0.5 + Math.floor(i / cols) * GAP_Y;
-                  const isActive = activeLine?.id === l.id;
-                  const lineStatus = statusForLine(l);
-                  return (
-                    <g key={l.id}>
-                      <IsoBlock
-                        x={bx}
-                        y={by}
-                        w={BLOCK_W}
-                        d={BLOCK_D}
-                        h={isActive ? 30 : 20}
-                        s={S}
-                        color={STATUS_HEX[lineStatus]}
-                        onClick={() => setSelected((curr) => (curr?.id === l.id ? null : l))}
-                        onMouseEnter={(e) => {
-                          setHovered(l);
-                          const rect = mapContainerRef.current?.getBoundingClientRect();
-                          if (rect) {
-                            setTooltip({
-                              title: `Line ${l.id}`,
-                              subtitle: `${l.sku} · ${l.machines.length} machines`,
-                              status: lineStatus,
-                              statusLabel: STATUS_LABEL[lineStatus],
-                              oee: l.oee,
-                              x: e.clientX - rect.left,
-                              y: e.clientY - rect.top,
-                            });
-                          }
-                        }}
-                        onMouseMove={(e) => {
-                          const rect = mapContainerRef.current?.getBoundingClientRect();
-                          if (rect) {
-                            setTooltip({
-                              title: `Line ${l.id}`,
-                              subtitle: `${l.sku} · ${l.machines.length} machines`,
-                              status: lineStatus,
-                              statusLabel: STATUS_LABEL[lineStatus],
-                              oee: l.oee,
-                              x: e.clientX - rect.left,
-                              y: e.clientY - rect.top,
-                            });
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          setHovered((curr) => (curr?.id === l.id ? null : curr));
-                          setTooltip(null);
-                        }}
-                        dim={!!activeLine && !isActive}
-                      />
-                      {/* machine status dots inside the line footprint */}
-                      {l.machines.map((m, mi) => {
-                        const p = iso(bx + 0.2 + mi * 0.22, by + 0.48, isActive ? 34 : 24, S);
-                        return (
-                          <circle
-                            key={m.id}
-                            cx={p.x}
-                            cy={p.y}
-                            r={2.8}
-                            fill={
-                              STATUS_HEX[liveState.machineStatuses[`${l.id}:${m.id}`] ?? m.status]
+          {plantId === "J2" ? (
+            <J2ZoneProductionFloorMap plantId={plantId} zone={zone} />
+          ) : (
+            <div
+              ref={mapContainerRef}
+              className="relative h-full w-full min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1"
+            >
+              <ZoomableMap className="min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1">
+                <IsoScene viewBox="-260 -100 620 460">
+                  <IsoGround cols={cols * GAP_X + 0.6} rows={rows * GAP_Y + 0.6} s={S} />
+                  {zone.lines.map((l, i) => {
+                    const bx = 0.5 + (i % cols) * GAP_X;
+                    const by = 0.5 + Math.floor(i / cols) * GAP_Y;
+                    const isActive = activeLine?.id === l.id;
+                    const lineStatus = statusForLine(l);
+                    return (
+                      <g key={l.id}>
+                        <IsoBlock
+                          x={bx}
+                          y={by}
+                          w={BLOCK_W}
+                          d={BLOCK_D}
+                          h={isActive ? 30 : 20}
+                          s={S}
+                          color={STATUS_HEX[lineStatus]}
+                          onClick={() => setSelected((curr) => (curr?.id === l.id ? null : l))}
+                          onMouseEnter={(e) => {
+                            setHovered(l);
+                            const rect = mapContainerRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              setTooltip({
+                                title: `Line ${l.id}`,
+                                subtitle: `${l.sku} · ${l.machines.length} machines`,
+                                status: lineStatus,
+                                statusLabel: STATUS_LABEL[lineStatus],
+                                oee: l.oee,
+                                x: e.clientX - rect.left,
+                                y: e.clientY - rect.top,
+                              });
                             }
-                            stroke="var(--surface)"
-                            strokeWidth={0.8}
-                          />
-                        );
-                      })}
-                      <IsoChip
-                        x={bx + BLOCK_W / 2}
-                        y={by + BLOCK_D / 2}
-                        s={S}
-                        h={isActive ? 34 : 24}
-                        label={l.id}
-                        value={`${l.oee.toFixed(0)}%`}
-                        color={TIER_HEX[tierOf(l.oee)]}
-                      />
-                    </g>
-                  );
-                })}
-              </IsoScene>
-            </ZoomableMap>
+                          }}
+                          onMouseMove={(e) => {
+                            const rect = mapContainerRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              setTooltip({
+                                title: `Line ${l.id}`,
+                                subtitle: `${l.sku} · ${l.machines.length} machines`,
+                                status: lineStatus,
+                                statusLabel: STATUS_LABEL[lineStatus],
+                                oee: l.oee,
+                                x: e.clientX - rect.left,
+                                y: e.clientY - rect.top,
+                              });
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            setHovered((curr) => (curr?.id === l.id ? null : curr));
+                            setTooltip(null);
+                          }}
+                          dim={!!activeLine && !isActive}
+                        />
+                        {/* machine status dots inside the line footprint */}
+                        {l.machines.map((m, mi) => {
+                          const p = iso(bx + 0.2 + mi * 0.22, by + 0.48, isActive ? 34 : 24, S);
+                          return (
+                            <circle
+                              key={m.id}
+                              cx={p.x}
+                              cy={p.y}
+                              r={2.8}
+                              fill={
+                                STATUS_HEX[liveState.machineStatuses[`${l.id}:${m.id}`] ?? m.status]
+                              }
+                              stroke="var(--surface)"
+                              strokeWidth={0.8}
+                            />
+                          );
+                        })}
+                        <IsoChip
+                          x={bx + BLOCK_W / 2}
+                          y={by + BLOCK_D / 2}
+                          s={S}
+                          h={isActive ? 34 : 24}
+                          label={l.id}
+                          value={`${l.oee.toFixed(0)}%`}
+                          color={TIER_HEX[tierOf(l.oee)]}
+                        />
+                      </g>
+                    );
+                  })}
+                </IsoScene>
+              </ZoomableMap>
 
-            <MapStatusLegendOverlay />
-            <MapHoverTooltip info={tooltip} />
-          </div>
+              <MapStatusLegendOverlay />
+              <MapHoverTooltip info={tooltip} />
+            </div>
+          )}
 
           {activeLine && (
             <div

@@ -48,7 +48,28 @@ const globalStore = globalThis as unknown as { __oeeAppContext?: Context<Ctx | n
 const AppContext = (globalStore.__oeeAppContext ??= createContext<Ctx | null>(null));
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role>("shift-leader");
+  const [role, setRoleState] = useState<Role>("section-head");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("paragon_oee_role");
+      if (saved === "shift-leader" || saved === "section-head") {
+        setRoleState(saved);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const setRole = useCallback((newRole: Role) => {
+    setRoleState(newRole);
+    try {
+      localStorage.setItem("paragon_oee_role", newRole);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -106,6 +127,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
     [
       role,
+      setRole,
       isCollapsed,
       mobileSidebarOpen,
       setMobileSidebarOpen,

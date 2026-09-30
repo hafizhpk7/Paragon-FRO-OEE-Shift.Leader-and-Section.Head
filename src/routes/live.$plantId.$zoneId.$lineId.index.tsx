@@ -166,12 +166,14 @@ function LineDetail() {
 
           <Panel
             title="Machine chain"
-            subtitle="Static snapshot — not clickable (read-only)"
+            subtitle="Click any machine for real-time sensor telemetry"
             action={<StatusLegend />}
             bodyClassName="relative p-0"
           >
             <div ref={mapContainerRef} className="relative h-[210px] w-full overflow-hidden">
-              <IsoScene viewBox="-60 -75 255 195">
+              <IsoScene
+                viewBox={`${-80} ${-80} ${Math.max(300, line.machines.length * 68 + 120)} 210`}
+              >
                 <IsoGround cols={line.machines.length * 1.35 + 0.6} rows={1.5} s={38} />
                 {line.machines.map((m, i) => (
                   <g key={m.id}>
@@ -183,12 +185,18 @@ function LineDetail() {
                       h={26}
                       s={38}
                       color={STATUS_HEX[m.status]}
+                      onClick={() =>
+                        navigate({
+                          to: "/live/$plantId/$zoneId/$lineId/$machineId",
+                          params: { plantId, zoneId, lineId, machineId: m.id },
+                        })
+                      }
                       onMouseEnter={(e) => {
                         const rect = mapContainerRef.current?.getBoundingClientRect();
                         if (rect) {
                           setTooltip({
                             title: `${m.id} (${m.type})`,
-                            subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m`,
+                            subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m · Click for sensors`,
                             status: m.status,
                             statusLabel: STATUS_LABEL[m.status],
                             oee: m.oee,
@@ -205,7 +213,7 @@ function LineDetail() {
                               ? { ...curr, x: e.clientX - rect.left, y: e.clientY - rect.top }
                               : {
                                   title: `${m.id} (${m.type})`,
-                                  subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m`,
+                                  subtitle: `MTTR ${m.mttr}m · MTBF ${m.mtbf}m · Click for sensors`,
                                   status: m.status,
                                   statusLabel: STATUS_LABEL[m.status],
                                   oee: m.oee,

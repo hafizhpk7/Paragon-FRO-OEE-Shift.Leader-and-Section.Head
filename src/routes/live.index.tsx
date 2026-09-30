@@ -222,7 +222,7 @@ function MultiPlantView() {
   const [period, setPeriod] = useState<PeriodId>("live");
   const [hoveredPlantId, setHoveredPlantId] = useState<string | null>(null);
   const [plantTooltip, setPlantTooltip] = useState<PlantHoverData | null>(null);
-  const [viewMode, setViewMode] = useState<"3d" | "2d">("3d");
+  const [viewMode, setViewMode] = useState<"3d" | "2d">("2d");
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const liveState = useLiveGroupState(period);
@@ -366,7 +366,11 @@ function MultiPlantView() {
         <Panel
           className="flex-1 w-full min-w-0"
           title="Group site map"
-          subtitle="3D satellite view of Paragon industrial manufacturing facilities · Click a marker to drill in"
+          subtitle={
+            viewMode === "3d"
+              ? "3D satellite perspective of Paragon industrial manufacturing facilities · Click a marker to drill in"
+              : "Top-down satellite overview of Paragon industrial manufacturing facilities · Click a marker to drill in"
+          }
           bodyClassName="relative p-0 overflow-hidden"
         >
           <div
@@ -376,7 +380,7 @@ function MultiPlantView() {
             {/* 3D Perspective Stage */}
             <div
               className="relative h-full w-full overflow-hidden flex items-center justify-center"
-              style={{ perspective: "1100px" }}
+              style={{ perspective: "1200px", transformStyle: "preserve-3d" }}
             >
               {/* Tilted Satellite Surface Plane */}
               <div
@@ -384,13 +388,16 @@ function MultiPlantView() {
                 style={{
                   transform:
                     viewMode === "3d"
-                      ? "perspective(1100px) rotateX(46deg) rotateZ(-16deg) scale(0.88)"
-                      : "perspective(1100px) rotateX(0deg) rotateZ(0deg) scale(0.88)",
+                      ? "rotateX(46deg) rotateZ(-16deg) scale(0.88)"
+                      : "rotateX(0deg) rotateZ(0deg) scale(0.92)",
                   transformStyle: "preserve-3d",
                 }}
               >
                 {/* Exact aspect ratio container matching jatake_satellite_map.jpg (1600x2017) */}
-                <div className="relative aspect-[1600/2017] h-[600px] sm:h-[680px] max-w-none shadow-2xl rounded-xl ring-1 ring-white/15">
+                <div
+                  className="relative aspect-[1600/2017] h-[600px] sm:h-[680px] max-w-none shadow-2xl rounded-xl ring-1 ring-white/15"
+                  style={{ transformStyle: "preserve-3d" }}
+                >
                   {/* Base Satellite Imagery */}
                   <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
                     <img
@@ -433,7 +440,10 @@ function MultiPlantView() {
                         }}
                       >
                         {/* Ground Anchor: Pulsing radar rings centered directly on top of the blue placemark */}
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center">
+                        <div
+                          className="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center"
+                          style={{ transformStyle: "preserve-3d" }}
+                        >
                           <span
                             className={cn(
                               "absolute size-8 rounded-full animate-ping opacity-45",
@@ -466,16 +476,20 @@ function MultiPlantView() {
                           onMouseMove={(e) => handlePlantHover(plant, e)}
                           onMouseLeave={handlePlantLeave}
                           className={cn(
-                            "group relative flex flex-col items-center cursor-pointer transition-all duration-200 select-none pb-1",
+                            "group relative flex flex-col items-center cursor-pointer select-none pb-1",
                             isHovered ? "z-40 scale-110" : "z-20 hover:scale-105",
                           )}
                           style={{
-                            transformOrigin: "bottom center",
+                            transformOrigin: "50% 100%",
                             transform:
                               viewMode === "3d"
-                                ? "rotateZ(16deg) rotateX(-46deg) translateZ(12px)"
-                                : "translateZ(0px)",
+                                ? "rotateZ(16deg) rotateX(-46deg) translateZ(16px)"
+                                : "rotateZ(0deg) rotateX(0deg) translateZ(0px)",
                             transformStyle: "preserve-3d",
+                            backfaceVisibility: "visible",
+                            WebkitBackfaceVisibility: "visible",
+                            transition:
+                              "transform 700ms cubic-bezier(0.16, 1, 0.3, 1), scale 200ms ease",
                           }}
                         >
                           {/* Modern Interactive Marker Badge */}
@@ -561,7 +575,7 @@ function MultiPlantView() {
                   <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
                 </span>
                 <span className="font-semibold tracking-wide text-[11px] uppercase">
-                  3D Satellite View
+                  {viewMode === "3d" ? "3D Satellite View" : "Top-Down Satellite"}
                 </span>
                 <span className="text-slate-400">·</span>
                 <span className="text-[11px] text-slate-300 font-mono">

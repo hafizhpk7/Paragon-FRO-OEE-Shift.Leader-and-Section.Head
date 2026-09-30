@@ -332,12 +332,29 @@ export function MapHoverTooltip({ info }: { info: MapTooltipInfo | null }) {
 }
 
 export function MapStatusLegendOverlay({ className }: { className?: string }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
+
+  if (collapsed) {
+    return (
+      <div
+        className={cn("pointer-events-auto absolute bottom-3 left-3 z-10 select-none", className)}
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex items-center gap-1.5 rounded-md border border-border bg-background/90 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-xs backdrop-blur hover:text-foreground hover:bg-surface cursor-pointer"
+        >
+          <span className="size-1.5 rounded-full bg-primary" />
+          <span>Status Legend</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
       className={cn(
-        "pointer-events-auto absolute bottom-4 left-4 z-10 max-w-[280px] rounded-md border border-border bg-background/90 p-3 text-xs shadow-sm backdrop-blur transition-all duration-200 select-none",
+        "pointer-events-auto absolute bottom-3 left-3 z-10 max-w-[280px] rounded-md border border-border bg-background/95 p-3 text-xs shadow-md backdrop-blur transition-all duration-200 select-none",
         className,
       )}
     >
@@ -345,59 +362,57 @@ export function MapStatusLegendOverlay({ className }: { className?: string }) {
         <span>Machine Status Legend</span>
         <button
           type="button"
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-[10px] lowercase text-primary hover:underline cursor-pointer"
+          onClick={() => setCollapsed(true)}
+          className="text-[10px] text-primary hover:underline cursor-pointer"
         >
-          {collapsed ? "expand" : "hide"}
+          hide
         </button>
       </div>
-      {!collapsed && (
-        <div className="mt-2 flex flex-col gap-1.5 text-[11px] leading-snug">
-          <div className="flex items-start gap-2">
-            <span className="mt-1 size-2 rounded-full bg-status-running ring-1 ring-status-running/30 shrink-0" />
-            <div>
-              <span className="font-semibold text-foreground">Green (Running):</span>{" "}
-              <span className="text-muted-foreground">
-                Machine running, output matches standard speed.
-              </span>
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="mt-1 size-2 rounded-full bg-status-slow ring-1 ring-status-slow/30 shrink-0" />
-            <div>
-              <span className="font-semibold text-foreground">Orange (Speed Loss):</span>{" "}
-              <span className="text-muted-foreground">
-                Machine running, output below standard speed.
-              </span>
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="mt-1 size-2 rounded-full bg-loss-minor-stop ring-1 ring-loss-minor-stop/30 shrink-0" />
-            <div>
-              <span className="font-semibold text-foreground">Yellow (Minor Stop):</span>{" "}
-              <span className="text-muted-foreground">
-                Machine running, no output for &lt; 10 mins.
-              </span>
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="mt-1 size-2 rounded-full bg-status-down ring-1 ring-status-down/30 shrink-0" />
-            <div>
-              <span className="font-semibold text-foreground">Red (Breakdown):</span>{" "}
-              <span className="text-muted-foreground">
-                Machine running, no output for &gt; 10 mins.
-              </span>
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="mt-1 size-2 rounded-full bg-status-idle ring-1 ring-status-idle/30 shrink-0" />
-            <div>
-              <span className="font-semibold text-foreground">Gray (Off):</span>{" "}
-              <span className="text-muted-foreground">Machine off or no schedule.</span>
-            </div>
+      <div className="mt-2 flex flex-col gap-1.5 text-[11px] leading-snug">
+        <div className="flex items-start gap-2">
+          <span className="mt-1 size-2 rounded-full bg-status-running ring-1 ring-status-running/30 shrink-0" />
+          <div>
+            <span className="font-semibold text-foreground">Green (Running):</span>{" "}
+            <span className="text-muted-foreground">
+              Machine running, output matches standard speed.
+            </span>
           </div>
         </div>
-      )}
+        <div className="flex items-start gap-2">
+          <span className="mt-1 size-2 rounded-full bg-status-slow ring-1 ring-status-slow/30 shrink-0" />
+          <div>
+            <span className="font-semibold text-foreground">Orange (Speed Loss):</span>{" "}
+            <span className="text-muted-foreground">
+              Machine running, output below standard speed.
+            </span>
+          </div>
+        </div>
+        <div className="flex items-start gap-2">
+          <span className="mt-1 size-2 rounded-full bg-loss-minor-stop ring-1 ring-loss-minor-stop/30 shrink-0" />
+          <div>
+            <span className="font-semibold text-foreground">Yellow (Minor Stop):</span>{" "}
+            <span className="text-muted-foreground">
+              Machine running, no output for &lt; 10 mins.
+            </span>
+          </div>
+        </div>
+        <div className="flex items-start gap-2">
+          <span className="mt-1 size-2 rounded-full bg-status-down ring-1 ring-status-down/30 shrink-0" />
+          <div>
+            <span className="font-semibold text-foreground">Red (Breakdown):</span>{" "}
+            <span className="text-muted-foreground">
+              Machine running, no output for &gt; 10 mins.
+            </span>
+          </div>
+        </div>
+        <div className="flex items-start gap-2">
+          <span className="mt-1 size-2 rounded-full bg-status-idle ring-1 ring-status-idle/30 shrink-0" />
+          <div>
+            <span className="font-semibold text-foreground">Gray (Off):</span>{" "}
+            <span className="text-muted-foreground">Machine off or no schedule.</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

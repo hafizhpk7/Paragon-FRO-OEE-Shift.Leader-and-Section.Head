@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { DEFAULT_PLANT_ID, DEFAULT_ZONE_ID } from "@/lib/oee/data";
 import { useApp, type Role } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
+import { QuickSearchTrigger } from "./quick-search";
 
 const roleLabels: Record<Role, string> = {
   "shift-leader": "Shift Leader",
@@ -126,6 +127,9 @@ export function AppSidebar() {
         </div>
 
         <nav aria-label="Mobile Navigation" className="flex-1 space-y-1.5 overflow-y-auto p-3">
+          <div className="pb-2">
+            <QuickSearchTrigger className="w-full" />
+          </div>
           <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Operations
           </p>
@@ -294,6 +298,15 @@ export function AppSidebar() {
         </div>
 
         <nav aria-label="Global navigation" className="flex-1 space-y-1 overflow-y-auto p-3">
+          {!isCollapsed ? (
+            <div className="pb-2">
+              <QuickSearchTrigger className="w-full" />
+            </div>
+          ) : (
+            <div className="flex justify-center pb-2">
+              <QuickSearchTrigger className="px-2 py-1.5" />
+            </div>
+          )}
           {!isCollapsed && (
             <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Operations
