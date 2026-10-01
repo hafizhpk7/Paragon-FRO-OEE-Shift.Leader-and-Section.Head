@@ -38,7 +38,7 @@ function ShiftPerformancePage() {
       <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
         <PageHeader
           title="Shift Performance"
-          crumbs={[{ label: "Kemas", to: "/" }, { label: "Shift Performance" }]}
+          crumbs={[{ label: "Kemas", to: "/live" }, { label: "Shift Performance" }]}
         />
         <main className="flex-1 p-4">
           <EmptyState message="Halaman ini khusus Section Head — ganti role di header untuk membukanya." />
@@ -56,7 +56,7 @@ function ShiftPerformancePage() {
       <PageHeader
         title="Shift Performance"
         crumbs={[
-          { label: "Kemas", to: "/" },
+          { label: "Kemas", to: "/live" },
           { label: "Section Head Dashboard", to: "/analytics" },
           { label: "Shift Performance" },
         ]}

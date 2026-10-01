@@ -77,7 +77,7 @@ function AnalyticsPage() {
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
       <PageHeader
         title={title}
-        crumbs={[{ label: "Kemas", to: "/" }, { label: title }]}
+        crumbs={[{ label: "Kemas", to: "/live" }, { label: title }]}
         meta={`Week 32 · ${scope.spanLabel}`}
       />
       <FilterBar />

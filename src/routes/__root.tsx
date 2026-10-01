@@ -26,7 +26,7 @@ function NotFoundComponent() {
         </p>
         <div className="mt-6">
           <Link
-            to="/"
+            to="/live"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Go home
@@ -64,7 +64,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             Try again
           </button>
           <a
-            href="/"
+            href="/live"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             Go home
@@ -105,35 +105,44 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
     ],
   }),
-  shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
   errorComponent: ErrorComponent,
 });
 
-function RootShell({ children }: { children: ReactNode }) {
+function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    const handleWindowError = (event: ErrorEvent) => {
+      const msg =
+        event.message || (event.error instanceof Error ? event.error.message : String(event.error));
+      if (
+        msg.includes("ResizeObserver loop completed with undelivered notifications") ||
+        msg.includes("ResizeObserver loop limit exceeded")
+      ) {
+        event.stopImmediatePropagation?.();
+        event.preventDefault?.();
+      }
+    };
+    window.addEventListener("error", handleWindowError);
+    return () => window.removeEventListener("error", handleWindowError);
+  }, []);
+
   return (
     <html lang="en">
       <head>
         <HeadContent />
       </head>
       <body>
-        {children}
+        <QueryClientProvider client={queryClient}>
+          <AppProvider>
+            <DashboardShell />
+          </AppProvider>
+        </QueryClientProvider>
         <Scripts />
       </body>
     </html>
-  );
-}
-
-function RootComponent() {
-  const { queryClient } = Route.useRouteContext();
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AppProvider>
-        <DashboardShell />
-      </AppProvider>
-    </QueryClientProvider>
   );
 }
 

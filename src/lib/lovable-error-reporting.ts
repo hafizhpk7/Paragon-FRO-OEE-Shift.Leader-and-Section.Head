@@ -50,6 +50,12 @@ export function reportLovableError(error: unknown, context: Record<string, unkno
       : error instanceof Error
         ? error.message
         : String(error);
+  if (
+    message.includes("ResizeObserver loop completed with undelivered notifications") ||
+    message.includes("ResizeObserver loop limit exceeded")
+  ) {
+    return;
+  }
   const stack = error instanceof Error ? error.stack : undefined;
   window.__lovableReportRuntimeError?.({
     message,

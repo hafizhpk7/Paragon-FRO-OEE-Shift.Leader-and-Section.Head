@@ -218,7 +218,7 @@ function PlantDetailCard({ data }: { data: PlantHoverData | null }) {
   );
 }
 
-function MultiPlantView() {
+export function MultiPlantView() {
   const [period, setPeriod] = useState<PeriodId>("live");
   const [hoveredPlantId, setHoveredPlantId] = useState<string | null>(null);
   const [plantTooltip, setPlantTooltip] = useState<PlantHoverData | null>(null);
@@ -290,7 +290,7 @@ function MultiPlantView() {
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
       <PageHeader
         title="Multi Plant View"
-        crumbs={[{ label: "Kemas", to: "/" }, { label: "Multi Plant" }]}
+        crumbs={[{ label: "Kemas", to: "/live" }, { label: "Multi Plant" }]}
         period={period}
         onPeriod={setPeriod}
         meta="Week 32 · 05-Aug 14:22"

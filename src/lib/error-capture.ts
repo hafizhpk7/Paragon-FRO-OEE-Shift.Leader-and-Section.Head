@@ -49,11 +49,26 @@ function isErrorLike(value: unknown): value is Error {
   return value instanceof Error;
 }
 
+function isIgnorableResizeObserverError(value: unknown): boolean {
+  if (!value) return false;
+  const str =
+    value instanceof Error
+      ? value.message
+      : typeof value === "string"
+        ? value
+        : ((value as { message?: string })?.message ?? "");
+  return (
+    str.includes("ResizeObserver loop completed with undelivered notifications") ||
+    str.includes("ResizeObserver loop limit exceeded")
+  );
+}
+
 // Wrap console.error so errors logged by any layer — including h3's internal
 // unhandled-error logging, which this file cannot hook directly — are both
 // recorded for consumeLastCapturedError and expanded before serialization.
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
+  if (args.some(isIgnorableResizeObserverError)) return;
   const expanded = args.map((arg) => {
     if (!isErrorLike(arg)) return arg;
     record(arg);
@@ -63,10 +78,25 @@ console.error = (...args: unknown[]) => {
 };
 
 if (typeof globalThis.addEventListener === "function") {
-  globalThis.addEventListener("error", (event) => record((event as ErrorEvent).error ?? event));
-  globalThis.addEventListener("unhandledrejection", (event) =>
-    record((event as PromiseRejectionEvent).reason),
-  );
+  globalThis.addEventListener("error", (event) => {
+    const error = (event as ErrorEvent).error ?? event;
+    const msg =
+      (event as ErrorEvent).message ?? (error instanceof Error ? error.message : String(error));
+    if (isIgnorableResizeObserverError(error) || isIgnorableResizeObserverError(msg)) {
+      (event as ErrorEvent).preventDefault?.();
+      (event as ErrorEvent).stopImmediatePropagation?.();
+      return;
+    }
+    record(error);
+  });
+  globalThis.addEventListener("unhandledrejection", (event) => {
+    const reason = (event as PromiseRejectionEvent).reason;
+    if (isIgnorableResizeObserverError(reason)) {
+      (event as PromiseRejectionEvent).preventDefault?.();
+      return;
+    }
+    record(reason);
+  });
 }
 
 export function consumeLastCapturedError(): unknown {

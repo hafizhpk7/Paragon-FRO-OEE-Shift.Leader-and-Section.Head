@@ -245,7 +245,8 @@ export function J2PlantCanvas3D({
     canvas.addEventListener("mousemove", onPointerMove);
     canvas.addEventListener("click", onClick);
 
-    // Resize Handler
+    // Resize Handler with requestAnimationFrame debounce
+    let resizeRaf: number | null = null;
     const resize = () => {
       if (!container || !renderer || !camera) return;
       const w = container.clientWidth;
@@ -256,7 +257,15 @@ export function J2PlantCanvas3D({
       camera.updateProjectionMatrix();
     };
 
-    const resizeObserver = new ResizeObserver(resize);
+    const handleResize = () => {
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = null;
+        resize();
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(container);
     resize();
 
@@ -275,6 +284,7 @@ export function J2PlantCanvas3D({
     animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       resizeObserver.disconnect();

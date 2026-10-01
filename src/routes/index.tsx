@@ -1,4 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { MultiPlantView } from "./live.index";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -7,7 +8,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Paragon OEE FRO dashboard prototype entry point: redirects to the Live Monitor dashboard.",
+          "Paragon OEE FRO dashboard prototype: Group level live monitor with 3D satellite view and real-time OEE telemetry.",
       },
       { property: "og:title", content: "Paragon OEE FRO Dashboard — Live Monitor" },
       {
@@ -16,8 +17,5 @@ export const Route = createFileRoute("/")({
       },
     ],
   }),
-  beforeLoad: () => {
-    throw redirect({ to: "/live" });
-  },
-  component: () => null,
+  component: MultiPlantView,
 });

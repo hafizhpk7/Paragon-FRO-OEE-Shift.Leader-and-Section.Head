@@ -170,7 +170,13 @@ export function QuickSearchDialog({
   );
 }
 
-export function QuickSearchTrigger({ className }: { className?: string }) {
+export function QuickSearchTrigger({
+  className,
+  collapsed = false,
+}: {
+  className?: string;
+  collapsed?: boolean;
+}) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -190,18 +196,24 @@ export function QuickSearchTrigger({ className }: { className?: string }) {
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors cursor-pointer",
+          "flex items-center rounded-md border border-border bg-surface text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors cursor-pointer",
+          collapsed
+            ? "size-11 justify-center p-0 mx-auto"
+            : "w-full justify-between gap-3 px-3 py-2",
           className,
         )}
+        title="Search lines and machines (⌘K)"
         aria-label="Search lines and machines"
       >
-        <div className="flex items-center gap-2">
-          <Search className="size-3.5" />
-          <span>Search line or machine...</span>
+        <div className={cn("flex items-center gap-2 min-w-0", collapsed && "justify-center")}>
+          <Search className="size-4 shrink-0" />
+          {!collapsed && <span className="truncate text-xs">Search line or machine...</span>}
         </div>
-        <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
-          ⌘K
-        </kbd>
+        {!collapsed && (
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground shrink-0">
+            ⌘K
+          </kbd>
+        )}
       </button>
 
       <QuickSearchDialog open={open} onOpenChange={setOpen} />

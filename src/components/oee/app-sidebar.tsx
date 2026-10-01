@@ -11,7 +11,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -70,8 +70,13 @@ export function AppSidebar() {
   const liveParams =
     role === "section-head" ? undefined : { plantId: DEFAULT_PLANT_ID, zoneId: DEFAULT_ZONE_ID };
 
-  // Auto-close mobile drawer on route change
+  // Auto-close mobile drawer on route change (skip initial mount)
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     setMobileSidebarOpen(false);
   }, [pathname, setMobileSidebarOpen]);
 
@@ -101,6 +106,7 @@ export function AppSidebar() {
             params={liveParams as never}
             onClick={() => setMobileSidebarOpen(false)}
             aria-label="Paragon OEE FRO home"
+            activeProps={() => ({ className: "" })}
             className="flex min-w-0 items-center gap-3"
           >
             <img
@@ -140,7 +146,7 @@ export function AppSidebar() {
             aria-label="Live Monitor Dashboard"
             className={cn(
               "flex h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors",
-              pathname.startsWith("/live")
+              pathname === "/" || pathname.startsWith("/live")
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             )}
@@ -279,6 +285,7 @@ export function AppSidebar() {
             to={liveDestination}
             params={liveParams as never}
             aria-label="Paragon OEE FRO home"
+            activeProps={() => ({ className: "" })}
             className="flex min-w-0 items-center gap-3"
           >
             <img
@@ -298,15 +305,13 @@ export function AppSidebar() {
         </div>
 
         <nav aria-label="Global navigation" className="flex-1 space-y-1 overflow-y-auto p-3">
-          {!isCollapsed ? (
-            <div className="pb-2">
-              <QuickSearchTrigger className="w-full" />
-            </div>
-          ) : (
-            <div className="flex justify-center pb-2">
-              <QuickSearchTrigger className="px-2 py-1.5" />
-            </div>
-          )}
+          <div className="pb-2">
+            <CollapsedTooltip collapsed={isCollapsed} label="Search lines and machines (⌘K)">
+              <div className="w-full">
+                <QuickSearchTrigger collapsed={isCollapsed} />
+              </div>
+            </CollapsedTooltip>
+          </div>
           {!isCollapsed && (
             <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Operations
@@ -320,7 +325,7 @@ export function AppSidebar() {
               className={cn(
                 "flex h-11 items-center rounded-md transition-colors",
                 isCollapsed ? "justify-center px-0" : "gap-3 px-3",
-                pathname.startsWith("/live")
+                pathname === "/" || pathname.startsWith("/live")
                   ? "bg-sidebar-primary text-sidebar-primary-foreground"
                   : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
               )}

@@ -4,12 +4,20 @@ import * as THREE from "three";
 
 import { STATUS_DOT, STATUS_LABEL, type Status } from "@/lib/oee/config";
 import {
-  DEFAULT_CAMERA,
-  buildMachineModel,
-  resolveModelKey,
-  type ModelInstance,
-} from "@/lib/oee/models";
+  createMachine,
+  resolveMachineType,
+  type CreatedMachine,
+  type MachineState,
+} from "@/lib/oee/machineModels";
+import { useApp } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
+
+function mapDashboardStatus(status: Status): { state: MachineState; speedFactor: number } {
+  if (status === "running") return { state: "running", speedFactor: 1.0 };
+  if (status === "slow") return { state: "running", speedFactor: 0.5 };
+  if (status === "down") return { state: "down", speedFactor: 0.0 };
+  return { state: "idle", speedFactor: 0.0 };
+}
 
 export function MachineView3D({
   machineCode,
@@ -29,36 +37,40 @@ export function MachineView3D({
   const isPlayingRef = useRef(true);
   isPlayingRef.current = isPlaying;
 
-  const modelKey = resolveModelKey(machineCode);
-  const camPreset = DEFAULT_CAMERA[modelKey] || DEFAULT_CAMERA.filling;
-
-  // Refs for animation loop & cleanup
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const modelInstanceRef = useRef<ModelInstance | null>(null);
+  const { isDarkMode } = useApp();
+  const machineType = resolveMachineType(machineCode);
+  const machineInstanceRef = useRef<CreatedMachine | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
   // Camera Orbit state
   const orbitRef = useRef({
-    th: camPreset.th,
-    ph: camPreset.ph,
-    dist: camPreset.dist,
-    target: new THREE.Vector3(...camPreset.target),
-    current: new THREE.Vector3(...camPreset.target),
+    th: 0.75,
+    ph: 0.45,
+    dist: 22,
+    target: new THREE.Vector3(0, 1.2, 0),
+    current: new THREE.Vector3(0, 1.2, 0),
+    minDist: 6,
+    maxDist: 55,
+    initialDist: 22,
+    initialTarget: new THREE.Vector3(0, 1.2, 0),
   });
 
   const resetCamera = () => {
-    orbitRef.current.th = camPreset.th;
-    orbitRef.current.ph = camPreset.ph;
-    orbitRef.current.dist = camPreset.dist;
-    orbitRef.current.target.set(...camPreset.target);
+    orbitRef.current.th = 0.75;
+    orbitRef.current.ph = 0.45;
+    orbitRef.current.dist = orbitRef.current.initialDist;
+    orbitRef.current.target.copy(orbitRef.current.initialTarget);
   };
 
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
+
+    // Three.js version parity (Requirement 3.7)
+    if ("ColorManagement" in THREE) {
+      (THREE as { ColorManagement: { enabled: boolean } }).ColorManagement.enabled = false;
+    }
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -68,25 +80,19 @@ export function MachineView3D({
         alpha: true,
       });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      rendererRef.current = renderer;
+      renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+      renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)];
     } catch (e) {
-      console.warn("WebGL initialization failed, showing fallback block", e);
+      console.warn("WebGL initialization failed for MachineView3D", e);
       setHasError(true);
       return;
     }
 
     const scene = new THREE.Scene();
-    sceneRef.current = scene;
+    const aspect = container.clientWidth / Math.max(container.clientHeight, 1);
+    const camera = new THREE.PerspectiveCamera(40, aspect, 0.1, 300);
 
-    const camera = new THREE.PerspectiveCamera(
-      camPreset.fov,
-      container.clientWidth / Math.max(container.clientHeight, 1),
-      0.1,
-      200,
-    );
-    cameraRef.current = camera;
-
-    // Lighting rig
+    // Lighting rig (matches standalone Paragon models)
     const hemi = new THREE.HemisphereLight(0xffffff, 0x556677, 0.9);
     scene.add(hemi);
 
@@ -99,29 +105,44 @@ export function MachineView3D({
     scene.add(fillSun);
 
     // Floor grid
-    const grid = new THREE.GridHelper(32, 32, 0x8894a8, 0xb8c1d0);
+    const grid = new THREE.GridHelper(48, 48, 0x8894a8, 0xb8c1d0);
     grid.position.y = -0.01;
     if (grid.material instanceof THREE.Material) {
       grid.material.transparent = true;
-      grid.material.opacity = 0.25;
+      grid.material.opacity = 0.35;
     }
     scene.add(grid);
 
-    // Build model
-    let modelInstance: ModelInstance;
+    // Build the machine using the single shared factory module
+    let createdMachine: CreatedMachine;
     try {
-      modelInstance = buildMachineModel(modelKey, {
-        lod: 2,
-        status,
-        seed: 42,
-      });
-      scene.add(modelInstance.group);
-      modelInstanceRef.current = modelInstance;
+      createdMachine = createMachine(machineType, { floor: true });
+      scene.add(createdMachine.group);
+      machineInstanceRef.current = createdMachine;
+
+      const mapped = mapDashboardStatus(status);
+      createdMachine.setState(mapped.state, mapped.speedFactor);
     } catch (err) {
-      console.warn(`Failed to build 3D model for ${machineCode}:`, err);
+      console.warn(`Failed to build 3D machine model for ${machineCode}:`, err);
       setHasError(true);
       return;
     }
+
+    // Framing setup based on Box3
+    createdMachine.group.updateMatrixWorld(true);
+    const box3 = new THREE.Box3().setFromObject(createdMachine.group);
+    const center = box3.getCenter(new THREE.Vector3());
+    const size = box3.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 6);
+
+    const initialDist = Math.max(16, maxDim * 1.4);
+    orbitRef.current.target.set(center.x, Math.max(center.y, 1.2), center.z);
+    orbitRef.current.current.copy(orbitRef.current.target);
+    orbitRef.current.initialTarget.copy(orbitRef.current.target);
+    orbitRef.current.dist = initialDist;
+    orbitRef.current.initialDist = initialDist;
+    orbitRef.current.minDist = Math.max(5, maxDim * 0.35);
+    orbitRef.current.maxDist = Math.max(50, maxDim * 3.5);
 
     // Pointer controls (Orbit, Pan, Zoom)
     let isDragging = false;
@@ -138,35 +159,44 @@ export function MachineView3D({
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!isDragging) return;
+      if (!activePointers.has(e.pointerId)) return;
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+      // 2-finger pinch zoom
       if (activePointers.size === 2) {
         const [p1, p2] = Array.from(activePointers.values());
         const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
         if (prevPinchDist > 0) {
           const factor = prevPinchDist / d;
-          orbitRef.current.dist = Math.min(
-            camPreset.maxDist,
-            Math.max(camPreset.minDist, orbitRef.current.dist * factor),
+          orbitRef.current.dist = THREE.MathUtils.clamp(
+            orbitRef.current.dist * factor,
+            orbitRef.current.minDist,
+            orbitRef.current.maxDist,
           );
         }
         prevPinchDist = d;
         return;
       }
 
+      if (!isDragging) return;
       const dx = e.clientX - dragStart.x;
       const dy = e.clientY - dragStart.y;
       dragStart = { x: e.clientX, y: e.clientY };
 
+      // Shift+drag or right-mouse = pan
       if (e.shiftKey || e.button === 2) {
-        // Pan
         const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
-        orbitRef.current.target.addScaledVector(right, -dx * 0.015);
+        const panSpeed = 0.02 * (orbitRef.current.dist / 30);
+        orbitRef.current.target.addScaledVector(right, -dx * panSpeed);
+        orbitRef.current.target.y += dy * panSpeed;
       } else {
-        // Orbit
-        orbitRef.current.th -= dx * 0.007;
-        orbitRef.current.ph = Math.min(1.5, Math.max(0.1, orbitRef.current.ph - dy * 0.007));
+        // Left-drag = rotate
+        orbitRef.current.th -= dx * 0.006;
+        orbitRef.current.ph = THREE.MathUtils.clamp(
+          orbitRef.current.ph - dy * 0.006,
+          0.12,
+          Math.PI / 2 - 0.05,
+        );
       }
     };
 
@@ -174,14 +204,17 @@ export function MachineView3D({
       activePointers.delete(e.pointerId);
       if (activePointers.size === 0) {
         isDragging = false;
+        prevPinchDist = 0;
       }
     };
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      orbitRef.current.dist = Math.min(
-        camPreset.maxDist,
-        Math.max(camPreset.minDist, orbitRef.current.dist * (1 + e.deltaY * 0.001)),
+      const zoomFactor = 1 + e.deltaY * 0.001;
+      orbitRef.current.dist = THREE.MathUtils.clamp(
+        orbitRef.current.dist * zoomFactor,
+        orbitRef.current.minDist,
+        orbitRef.current.maxDist,
       );
     };
 
@@ -191,9 +224,10 @@ export function MachineView3D({
     canvas.addEventListener("pointercancel", onPointerUp);
     canvas.addEventListener("wheel", onWheel, { passive: false });
 
-    // Resize handler
-    const resize = () => {
-      if (!container || !renderer || !camera) return;
+    // Responsive resize with requestAnimationFrame debounce
+    let resizeRaf: number | null = null;
+    const handleResize = () => {
+      if (!container || !renderer) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
       if (w === 0 || h === 0) return;
@@ -202,40 +236,49 @@ export function MachineView3D({
       camera.updateProjectionMatrix();
     };
 
-    const resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(container);
-    resize();
+    const onResize = () => {
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = null;
+        handleResize();
+      });
+    };
 
-    // Animation Loop
+    const resizeObserver = new ResizeObserver(onResize);
+    resizeObserver.observe(container);
+    handleResize();
+
+    // Render loop
     let lastTime = performance.now();
-    let isVisible = true;
+    let isTabVisible = !document.hidden;
 
     const onVisibilityChange = () => {
-      isVisible = !document.hidden;
+      isTabVisible = !document.hidden;
+      if (isTabVisible) lastTime = performance.now();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     const loop = (now: number) => {
       animFrameRef.current = requestAnimationFrame(loop);
-      if (!isVisible) return;
+      if (!isTabVisible) return;
 
-      const dt = Math.min(0.05, (now - lastTime) / 1000);
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
 
-      if (isPlayingRef.current && modelInstanceRef.current) {
-        modelInstanceRef.current.update(dt, now / 1000);
+      if (isPlayingRef.current && createdMachine) {
+        createdMachine.update(dt);
       }
 
       // Smooth camera interpolation
-      const orbit = orbitRef.current;
-      orbit.current.lerp(orbit.target, 0.1);
+      orbitRef.current.current.lerp(orbitRef.current.target, 0.08);
 
+      const { th, ph, dist, current } = orbitRef.current;
       camera.position.set(
-        orbit.current.x + orbit.dist * Math.sin(orbit.ph) * Math.sin(orbit.th),
-        orbit.current.y + orbit.dist * Math.cos(orbit.ph),
-        orbit.current.z + orbit.dist * Math.sin(orbit.ph) * Math.cos(orbit.th),
+        current.x + dist * Math.sin(ph) * Math.sin(th),
+        current.y + dist * Math.cos(ph),
+        current.z + dist * Math.sin(ph) * Math.cos(th),
       );
-      camera.lookAt(orbit.current);
+      camera.lookAt(current);
 
       renderer.render(scene, camera);
     };
@@ -243,6 +286,7 @@ export function MachineView3D({
     animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       resizeObserver.disconnect();
@@ -252,15 +296,16 @@ export function MachineView3D({
       canvas.removeEventListener("pointercancel", onPointerUp);
       canvas.removeEventListener("wheel", onWheel);
 
-      modelInstance.dispose();
+      createdMachine.dispose();
       renderer.dispose();
     };
-  }, [machineCode, modelKey, camPreset, status]);
+  }, [machineCode, machineType, status]);
 
-  // Update status dynamically on live refresh
+  // Live status updates
   useEffect(() => {
-    if (modelInstanceRef.current) {
-      modelInstanceRef.current.setStatus(status);
+    if (machineInstanceRef.current) {
+      const mapped = mapDashboardStatus(status);
+      machineInstanceRef.current.setState(mapped.state, mapped.speedFactor);
     }
   }, [status]);
 
