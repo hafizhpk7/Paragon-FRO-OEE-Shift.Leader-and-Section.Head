@@ -10,6 +10,7 @@ import {
   resolveModelKey,
   type ModelInstance,
 } from "@/lib/oee/models";
+import { setupStudioLightingAndEnvironment } from "@/lib/oee/three-studio-env";
 
 export function J2PlantCanvas3D({
   plant,
@@ -73,17 +74,14 @@ export function J2PlantCanvas3D({
     const aspect = container.clientWidth / Math.max(container.clientHeight, 1);
     const camera = new THREE.PerspectiveCamera(36, aspect, 0.1, 300);
 
-    // Lighting rig per spec
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x556677, 0.9);
-    scene.add(hemi);
-
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(16, 26, 20);
-    scene.add(sun);
-
-    const fillSun = new THREE.DirectionalLight(0xffffff, 0.3);
-    fillSun.position.set(-10, 8, -8);
-    scene.add(fillSun);
+    // Studio Environment Reflections & Base Lighting Setup
+    const studioLights = setupStudioLightingAndEnvironment(scene, renderer, {
+      ambientIntensity: 0.65,
+      directionalIntensity: 1.5,
+      directionalPos: [16, 26, 20],
+      fillIntensity: 0.7,
+      hemiIntensity: 0.6,
+    });
 
     // Camera preset for high-fidelity plant overview
     camera.position.set(28, 38, 48);
@@ -292,6 +290,7 @@ export function J2PlantCanvas3D({
       canvas.removeEventListener("click", onClick);
 
       instances.forEach(({ instance }) => instance.dispose());
+      studioLights.dispose();
       renderer.dispose();
     };
   }, [plant, onClickZone, onHoverMachine, onLeaveMachine]);

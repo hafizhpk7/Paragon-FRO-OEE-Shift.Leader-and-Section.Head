@@ -9,6 +9,7 @@ import {
   type CreatedMachine,
   type MachineState,
 } from "@/lib/oee/machineModels";
+import { setupStudioLightingAndEnvironment } from "@/lib/oee/three-studio-env";
 import { useApp } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
 
@@ -67,11 +68,6 @@ export function MachineView3D({
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
 
-    // Three.js version parity (Requirement 3.7)
-    if ("ColorManagement" in THREE) {
-      (THREE as { ColorManagement: { enabled: boolean } }).ColorManagement.enabled = false;
-    }
-
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
@@ -80,7 +76,6 @@ export function MachineView3D({
         alpha: true,
       });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
       renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)];
     } catch (e) {
       console.warn("WebGL initialization failed for MachineView3D", e);
@@ -92,17 +87,14 @@ export function MachineView3D({
     const aspect = container.clientWidth / Math.max(container.clientHeight, 1);
     const camera = new THREE.PerspectiveCamera(40, aspect, 0.1, 300);
 
-    // Lighting rig (matches standalone Paragon models)
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x556677, 0.9);
-    scene.add(hemi);
-
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(8, 14, 10);
-    scene.add(sun);
-
-    const fillSun = new THREE.DirectionalLight(0xffffff, 0.3);
-    fillSun.position.set(-6, 5, -4);
-    scene.add(fillSun);
+    // Studio Environment Reflections & Base Lighting Setup
+    const studioLights = setupStudioLightingAndEnvironment(scene, renderer, {
+      ambientIntensity: 0.6,
+      directionalIntensity: 1.5,
+      directionalPos: [10, 10, 10],
+      fillIntensity: 0.7,
+      hemiIntensity: 0.6,
+    });
 
     // Floor grid
     const grid = new THREE.GridHelper(48, 48, 0x8894a8, 0xb8c1d0);
@@ -297,6 +289,7 @@ export function MachineView3D({
       canvas.removeEventListener("wheel", onWheel);
 
       createdMachine.dispose();
+      studioLights.dispose();
       renderer.dispose();
     };
   }, [machineCode, machineType, status]);

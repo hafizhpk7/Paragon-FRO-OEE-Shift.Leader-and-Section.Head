@@ -31,6 +31,7 @@ import {
   type CreatedMachine,
   type MachineState,
 } from "@/lib/oee/machineModels";
+import { setupStudioLightingAndEnvironment } from "@/lib/oee/three-studio-env";
 import { cn } from "@/lib/utils";
 
 function mapDashboardStatus(status: Status): { state: MachineState; speedFactor: number } {
@@ -144,17 +145,14 @@ export function LineChainView3D({
     const aspect = Math.max(0.1, container.clientWidth / Math.max(container.clientHeight, 1));
     const camera = new THREE.PerspectiveCamera(38, aspect, 0.1, 400);
 
-    // Standard industrial lighting rig
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x667788, 0.95);
-    scene.add(hemi);
-
-    const sun = new THREE.DirectionalLight(0xffffff, 0.85);
-    sun.position.set(20, 30, 20);
-    scene.add(sun);
-
-    const fillSun = new THREE.DirectionalLight(0xffffff, 0.4);
-    fillSun.position.set(-18, 12, -12);
-    scene.add(fillSun);
+    // Studio Environment Reflections & Base Lighting Setup
+    const studioLights = setupStudioLightingAndEnvironment(scene, renderer, {
+      ambientIntensity: 0.6,
+      directionalIntensity: 1.5,
+      directionalPos: [10, 10, 10],
+      fillIntensity: 0.7,
+      hemiIntensity: 0.6,
+    });
 
     // Continuous floor foundation (§4.5): exactly ONE continuous floor plate under the whole chain
     const totalLength = chainLayout.totalLength;
@@ -531,6 +529,7 @@ export function LineChainView3D({
       floorMat.dispose();
       grid.geometry.dispose();
       if (grid.material instanceof THREE.Material) grid.material.dispose();
+      studioLights.dispose();
 
       renderer.dispose();
     };

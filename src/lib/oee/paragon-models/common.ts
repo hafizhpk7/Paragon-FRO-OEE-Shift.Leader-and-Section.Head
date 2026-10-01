@@ -11,11 +11,13 @@ export function createHelpers(ctx: BuilderContext) {
   const { group, disposables } = ctx;
 
   const M = (color: number, opts: Record<string, unknown> = {}) => {
+    const rawMetalness = typeof opts.metalness === "number" ? opts.metalness : 0.35;
+    const rawRoughness = typeof opts.roughness === "number" ? opts.roughness : 0.45;
     const mat = new THREE.MeshStandardMaterial({
       color,
-      metalness: 0.4,
-      roughness: 0.5,
       ...opts,
+      metalness: Math.min(rawMetalness, 0.6),
+      roughness: Math.max(rawRoughness, 0.25),
     });
     disposables.push(mat);
     return mat;

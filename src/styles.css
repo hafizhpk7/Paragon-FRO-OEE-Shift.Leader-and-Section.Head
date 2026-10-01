@@ -75,6 +75,13 @@
   --color-loss-caret: var(--loss-caret);
   --color-loss-badge: var(--loss-badge);
   --color-loss-badge-foreground: var(--loss-badge-foreground);
+  --color-loss-run: var(--loss-run);
+  --color-loss-speed: var(--loss-speed);
+  --color-loss-minor: var(--loss-minor);
+  --color-loss-down: var(--loss-down);
+  --color-loss-planned: var(--loss-planned);
+  --color-loss-setup: var(--loss-setup);
+  --color-loss-quality: var(--loss-quality);
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
@@ -148,6 +155,13 @@
   --loss-caret: oklch(0.57 0.2 27);
   --loss-badge: oklch(0.93 0.05 252);
   --loss-badge-foreground: oklch(0.5 0.19 255);
+  --loss-run: #cdeedb;
+  --loss-speed: #f4c54c;
+  --loss-minor: #f59331;
+  --loss-down: #e5484d;
+  --loss-planned: #b9c1cb;
+  --loss-setup: #ec8f8f;
+  --loss-quality: #a78bfa;
 }
 
 .dark {
@@ -210,6 +224,34 @@
   --loss-caret: oklch(0.7 0.18 27);
   --loss-badge: oklch(0.3 0.08 252);
   --loss-badge-foreground: oklch(0.75 0.14 255);
+  --loss-run: #275338;
+  --loss-speed: #7a5f15;
+  --loss-minor: #8c4b12;
+  --loss-down: #8b2529;
+  --loss-planned: #48505c;
+  --loss-setup: #7d3737;
+  --loss-quality: #573d96;
+}
+
+/* Diagonal hatch pattern for Needs Reason overlay in both light and dark mode */
+.hatch-needs-reason {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.45),
+    rgba(255, 255, 255, 0.45) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.dark .hatch-needs-reason {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(0, 0, 0, 0.45),
+    rgba(0, 0, 0, 0.45) 4px,
+    transparent 4px,
+    transparent 8px
+  );
 }
 
 @layer base {
