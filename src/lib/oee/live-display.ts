@@ -734,31 +734,53 @@ export function useLiveLineState(
 ) {
   const baseLine = useMemo(() => getLine(plantId, zoneId, lineId), [plantId, zoneId, lineId]);
 
-  const [line, setLine] = useState(() => ({
-    oee: baseLine?.oee ?? 75,
-    performance: baseLine?.performance ?? 85,
-    speed: baseLine?.speed ?? 120,
-    outputActual: baseLine?.outputActual ?? 12000,
-    runningMinutes: baseLine?.runningMinutes ?? 240,
-    status: baseLine?.status ?? "running",
-  }));
+  const [line, setLine] = useState(() => {
+    const availability = baseLine?.availability ?? 85;
+    const performance = baseLine?.performance ?? 85;
+    const quality = baseLine?.quality ?? 98;
+    const oee = clampPercentage((availability * performance * quality) / 10_000);
+    return {
+      oee,
+      availability,
+      performance,
+      quality,
+      speed: baseLine?.speed ?? 120,
+      outputActual: baseLine?.outputActual ?? 12000,
+      runningMinutes: baseLine?.runningMinutes ?? 240,
+      status: baseLine?.status ?? "running",
+    };
+  });
 
-  const [prevLine, setPrevLine] = useState(() => ({
-    oee: clampPercentage((baseLine?.oee ?? 75) - 0.4),
-    performance: clampPercentage((baseLine?.performance ?? 85) + 0.3),
-    speed: (baseLine?.speed ?? 120) - 2,
-    outputActual: (baseLine?.outputActual ?? 12000) - 6,
-    runningMinutes: (baseLine?.runningMinutes ?? 240) - 1,
-    status: baseLine?.status ?? "running",
-  }));
+  const [prevLine, setPrevLine] = useState(() => {
+    const a = clampPercentage((baseLine?.availability ?? 85) - 0.4);
+    const p = clampPercentage((baseLine?.performance ?? 85) + 0.3);
+    const q = clampPercentage((baseLine?.quality ?? 98) - 0.1);
+    const oee = clampPercentage((a * p * q) / 10_000);
+    return {
+      oee,
+      availability: a,
+      performance: p,
+      quality: q,
+      speed: (baseLine?.speed ?? 120) - 2,
+      outputActual: (baseLine?.outputActual ?? 12000) - 6,
+      runningMinutes: (baseLine?.runningMinutes ?? 240) - 1,
+      status: baseLine?.status ?? "running",
+    };
+  });
 
   const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     if (!baseLine) return;
+    const availability = baseLine.availability;
+    const performance = baseLine.performance;
+    const quality = baseLine.quality;
+    const oee = clampPercentage((availability * performance * quality) / 10_000);
     setLine({
-      oee: baseLine.oee,
-      performance: baseLine.performance,
+      oee,
+      availability,
+      performance,
+      quality,
       speed: baseLine.speed,
       outputActual: baseLine.outputActual,
       runningMinutes: baseLine.runningMinutes,
@@ -779,14 +801,22 @@ export function useLiveLineState(
       setLine((curr) => {
         setPrevLine(curr);
 
-        const jitterOee = Math.random() * 1.4 - 0.7;
-        const jitterPerf = Math.random() * 1.6 - 0.8;
+        const jitterA = Math.random() * 1.4 - 0.7;
+        const jitterP = Math.random() * 1.6 - 0.8;
+        const jitterQ = Math.random() * 0.4 - 0.2;
         const jitterSpeed = Math.floor(Math.random() * 7 - 3);
         const unitsProduced = Math.floor(Math.random() * 6 + 4);
 
+        const availability = clampPercentage(baseLine.availability + jitterA);
+        const performance = clampPercentage(baseLine.performance + jitterP);
+        const quality = clampPercentage(baseLine.quality + jitterQ);
+        const oee = clampPercentage((availability * performance * quality) / 10_000);
+
         return {
-          oee: clampPercentage(baseLine.oee + jitterOee),
-          performance: clampPercentage(baseLine.performance + jitterPerf),
+          oee,
+          availability,
+          performance,
+          quality,
           speed: Math.max(0, baseLine.speed + jitterSpeed),
           outputActual: curr.outputActual + unitsProduced,
           runningMinutes: curr.runningMinutes + 0.5,
@@ -820,13 +850,17 @@ export function useLiveLineState(
     if (period === "live") {
       return {
         oee: +(line.oee - prevLine.oee).toFixed(1),
+        availability: +(line.availability - prevLine.availability).toFixed(1),
         performance: +(line.performance - prevLine.performance).toFixed(1),
+        quality: +(line.quality - prevLine.quality).toFixed(1),
         speed: +(line.speed - prevLine.speed).toFixed(1),
       };
     }
     return {
       oee: staticDeltas.oee,
+      availability: staticDeltas.availability,
       performance: staticDeltas.performance,
+      quality: staticDeltas.quality,
       speed: 1.5,
     };
   }, [line, prevLine, period, staticDeltas]);

@@ -19,6 +19,8 @@ import { TIER_HEX, tierOf } from "@/lib/oee/config";
 import type { LossNode, Point } from "@/lib/oee/data";
 import { cn } from "@/lib/utils";
 
+import { METRIC_CONFIG, METRICS_ORDER, type MetricId } from "./metric-dropdown";
+
 const AXIS = { fontSize: 10, fill: "var(--muted-foreground)" } as const;
 
 export type Measure = "minutes" | "occurrences";
@@ -74,18 +76,90 @@ export function Sparkline({ data, dataKey = "v" }: { data: Point[]; dataKey?: st
   );
 }
 
+interface TooltipEntry {
+  dataKey?: string | number;
+  name?: string;
+  value?: number | string | null;
+  color?: string;
+}
+
+function CustomTrendTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: TooltipEntry[];
+  label?: string;
+}) {
+  if (!active || !payload || !payload.length) return null;
+
+  const FIXED_ORDER = ["OEE", "Availability", "Performance", "Quality"];
+  const sortedPayload = [...payload].sort(
+    (a, b) => FIXED_ORDER.indexOf(String(a.dataKey)) - FIXED_ORDER.indexOf(String(b.dataKey)),
+  );
+
+  return (
+    <div className="rounded-lg border border-border bg-surface p-2.5 shadow-lg text-[11px] min-w-[140px] z-50">
+      <p className="font-semibold text-foreground mb-1.5 border-b border-border/60 pb-1">{label}</p>
+      <div className="space-y-1">
+        {sortedPayload.map((entry) => {
+          const key = String(entry.dataKey);
+          const rawVal = entry.value;
+          const formattedVal =
+            rawVal !== null && rawVal !== undefined && !isNaN(Number(rawVal))
+              ? `${Number(rawVal).toFixed(1)}%`
+              : "—";
+          const config = METRIC_CONFIG[key as MetricId];
+          const dotColor = config?.dot ?? entry.color ?? "#3b82f6";
+
+          return (
+            <div key={key} className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: dotColor }}
+                />
+                <span className="text-muted-foreground truncate">{key}</span>
+              </div>
+              <span className="font-mono font-medium text-foreground shrink-0">{formattedVal}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function TrendChart({
   data,
   keys,
+  selectedMetrics,
   reference,
   height,
 }: {
   data: Point[];
-  keys: string[];
+  keys?: string[];
+  selectedMetrics?: MetricId[];
   reference?: number;
   height?: number;
 }) {
-  const colors = ["var(--primary)", "var(--tier-good)", "var(--tier-warn)", "var(--tier-bad)"];
+  const activeMetrics = selectedMetrics ?? (keys as MetricId[]) ?? ["OEE"];
+
+  // Sort active metrics in fixed order: OEE, Availability, Performance, Quality
+  const sortedMetrics = METRICS_ORDER.filter((m) => activeMetrics.includes(m));
+
+  // Show reference target line ONLY when OEE is selected
+  const showReference = reference !== undefined && activeMetrics.includes("OEE");
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex h-[250px] w-full items-center justify-center text-sm text-muted-foreground">
+        No data
+      </div>
+    );
+  }
+
   return (
     <div
       className="relative h-[250px] max-h-[350px] min-h-[200px] w-full"
@@ -95,29 +169,35 @@ export function TrendChart({
         <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
           <CartesianGrid stroke="var(--grid)" vertical={false} />
           <XAxis dataKey="label" tick={AXIS} stroke="var(--grid)" />
-          <YAxis tick={AXIS} stroke="var(--grid)" domain={[0, 100]} />
-          <Tooltip
-            contentStyle={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              fontSize: 11,
-            }}
+          <YAxis
+            tick={AXIS}
+            stroke="var(--grid)"
+            domain={[0, 100]}
+            ticks={[0, 20, 40, 60, 80, 100]}
           />
-          <Legend wrapperStyle={{ fontSize: 10 }} />
-          {reference !== undefined && (
+          <Tooltip content={<CustomTrendTooltip />} />
+          <Legend
+            wrapperStyle={{ fontSize: 10, paddingTop: 4 }}
+            formatter={(value) => <span className="text-foreground font-medium">{value}</span>}
+          />
+          {showReference && (
             <ReferenceLine y={reference} stroke="var(--muted-foreground)" strokeDasharray="4 4" />
           )}
-          {keys.map((k, i) => (
-            <RLine
-              key={k}
-              type="monotone"
-              dataKey={k}
-              stroke={colors[i % colors.length]}
-              strokeWidth={1.8}
-              dot={{ r: 2 }}
-            />
-          ))}
+          {sortedMetrics.map((m) => {
+            const config = METRIC_CONFIG[m];
+            return (
+              <RLine
+                key={m}
+                name={m}
+                type="monotone"
+                dataKey={m}
+                stroke={config?.stroke ?? "var(--primary)"}
+                strokeWidth={1.8}
+                dot={{ r: 2 }}
+                connectNulls={false}
+              />
+            );
+          })}
         </LineChart>
       </ResponsiveContainer>
     </div>

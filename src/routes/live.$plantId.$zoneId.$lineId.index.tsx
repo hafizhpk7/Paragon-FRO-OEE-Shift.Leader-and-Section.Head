@@ -96,12 +96,20 @@ function LineDetail() {
         back={{ label: zone.name, to: "/live/$plantId/$zoneId", params: { plantId, zoneId } }}
       />
       <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 pb-12 min-w-0 max-w-full overflow-x-hidden">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
           <KpiCard
             label="Line OEE"
             value={liveLine.oee.toFixed(1)}
             unit="%"
             caption={<Delta value={liveState.deltas.oee} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
+          />
+          <KpiCard
+            label="Availability"
+            value={liveLine.availability.toFixed(1)}
+            unit="%"
+            caption={<Delta value={liveState.deltas.availability} />}
             comparisonLabel={compareLabel}
             isUpdating={liveState.isUpdating}
           />
@@ -114,8 +122,17 @@ function LineDetail() {
             isUpdating={liveState.isUpdating}
           />
           <KpiCard
+            label="Quality"
+            value={liveLine.quality.toFixed(1)}
+            unit="%"
+            caption={<Delta value={liveState.deltas.quality} />}
+            comparisonLabel={compareLabel}
+            isUpdating={liveState.isUpdating}
+          />
+          <KpiCard
             label="Output"
             value={liveLine.outputActual.toLocaleString()}
+            unit="pcs"
             isUpdating={liveState.isUpdating}
             caption={
               behind ? (

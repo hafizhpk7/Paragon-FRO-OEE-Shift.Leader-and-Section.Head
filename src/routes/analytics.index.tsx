@@ -4,27 +4,12 @@ import { ArrowDownUp } from "lucide-react";
 
 import { BarByLine, DivergingList, Sparkline, TrendChart } from "@/components/oee/charts";
 import { FilterBar } from "@/components/oee/filter-bar";
-import {
-  Delta,
-  Donut,
-  KpiCard,
-  KpiComparison,
-  KpiDelta,
-  NoDataForFilters,
-  PageHeader,
-  Panel,
-} from "@/components/oee/ui";
+import { MetricDropdown, METRICS_ORDER, type MetricId } from "@/components/oee/metric-dropdown";
+import { Delta, Donut, KpiCard, NoDataForFilters, PageHeader, Panel } from "@/components/oee/ui";
 import { useApp } from "@/lib/oee/app-context";
-import {
-  biggestLoss,
-  bucketsFor,
-  comparison,
-  formatDeltaPercent,
-  getCompareLabel,
-  getPriorPeriodKpis,
-  trendSeries,
-} from "@/lib/oee/data";
+import { biggestLoss, bucketsFor, comparison, type Point } from "@/lib/oee/data";
 import { RESOLUTIONS, SPANS } from "@/lib/oee/filters";
+import { rand } from "@/lib/oee/rng";
 import { useScope } from "@/lib/oee/scope";
 
 export const Route = createFileRoute("/analytics/")({
@@ -52,6 +37,7 @@ function AnalyticsPage() {
   const scope = useScope();
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
+  const [selectedMetrics, setSelectedMetrics] = useState<MetricId[]>(["OEE"]);
 
   const title =
     role === "section-head" ? "Section Head Dashboard — OEE" : "Shift Leader Dashboard — OEE";
@@ -63,33 +49,43 @@ function AnalyticsPage() {
       ? Math.round((scope.lines.reduce((a, l) => a + l[key], 0) / scope.lines.length) * 10) / 10
       : 0;
 
-  const currOee = avg("oee");
-  const currAvail = avg("availability");
-  const currPerf = avg("performance");
-  const currQual = avg("quality");
-
-  const prior = useMemo(
-    () => getPriorPeriodKpis(scope.seed, scope.lines),
-    [scope.seed, scope.lines],
-  );
-  const compareLabel = getCompareLabel(filters.span);
-
-  const deltaOee = formatDeltaPercent(currOee, prior.avgOee);
-  const deltaAvail = formatDeltaPercent(currAvail, prior.avgAvailability);
-  const deltaPerf = formatDeltaPercent(currPerf, prior.avgPerformance);
-  const deltaQual = formatDeltaPercent(currQual, prior.avgQuality);
-
   const trend = useMemo(() => {
     const buckets = bucketsFor(resMinutes, days);
-    const keys = scope.zoneIds.length ? scope.zoneIds.map((z) => `Zone ${z}`) : ["All zones"];
-    return trendSeries(scope.seed, buckets, keys, currOee, 6);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.seed, resMinutes, days]);
+    const getAvg = (key: "oee" | "availability" | "performance" | "quality") =>
+      scope.lines.length
+        ? Math.round((scope.lines.reduce((a, l) => a + l[key], 0) / scope.lines.length) * 10) / 10
+        : 0;
+
+    const metricBases: Record<MetricId, number> = {
+      OEE: getAvg("oee"),
+      Availability: getAvg("availability"),
+      Performance: getAvg("performance"),
+      Quality: getAvg("quality"),
+    };
+
+    return buckets.map((label, i) => {
+      const point: Point = { label };
+      METRICS_ORDER.forEach((m, mi) => {
+        const base = metricBases[m];
+        const wave = Math.sin((i + mi * 1.5) / 1.8) * 3.5;
+        const val = Math.round((base + wave + rand(`${scope.seed}-${m}-${i}`, -4, 4, 1)) * 10) / 10;
+        point[m] = Math.min(100, Math.max(0, val));
+      });
+      return point;
+    });
+  }, [scope.seed, resMinutes, days, scope.lines]);
+
+  const isOeeSelected = selectedMetrics.includes("OEE");
+  const trendSubtitle = isOeeSelected
+    ? "Dashed line = reference target 75%"
+    : selectedMetrics.length > 1
+      ? `${selectedMetrics.length} metrics selected`
+      : `${selectedMetrics[0]} trend`;
 
   const spark = (offset: number) =>
     bucketsFor(1440, 7).map((label, i) => ({
       label,
-      v: Math.round((currOee + offset + Math.sin(i + offset) * 3) * 10) / 10,
+      v: Math.round((avg("oee") + offset + Math.sin(i + offset) * 3) * 10) / 10,
     }));
 
   const byLine = useMemo(() => {
@@ -101,7 +97,6 @@ function AnalyticsPage() {
 
   const cmp = useMemo(() => comparison(scope.seed, scope.lines), [scope.seed, scope.lines]);
   const loss = useMemo(() => biggestLoss(scope.seed), [scope.seed]);
-  const priorLossMin = prior.getCategoryMinutes(loss.label);
 
   const goodOutput = scope.lines.reduce((a, l) => a + l.outputActual, 0);
   const planOutput = scope.lines.reduce((a, l) => a + l.outputTarget, 0) || 1;
@@ -123,58 +118,26 @@ function AnalyticsPage() {
       ) : (
         <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
-            <div className="flex flex-col items-center justify-between rounded-lg border border-border bg-surface p-3 min-h-[148px]">
-              <Donut value={currOee} size={84} label="Average OEE" />
-              <div className="mt-1 flex flex-col items-center text-center leading-tight">
-                <KpiComparison text={`${compareLabel} ${prior.avgOee.toFixed(1)}%`} />
-                <KpiDelta
-                  text={deltaOee.text}
-                  tone={deltaOee.tone}
-                  ariaLabel={deltaOee.ariaLabel}
-                />
-              </div>
+            <div className="flex items-center justify-center rounded-lg border border-border bg-surface py-3">
+              <Donut value={avg("oee")} size={96} label="Average OEE" />
             </div>
-
-            <KpiCard
-              label="Availability"
-              value={currAvail.toFixed(1)}
-              unit="%"
-              comparisonText={`${compareLabel} ${prior.avgAvailability.toFixed(1)}%`}
-              deltaText={deltaAvail.text}
-              deltaTone={deltaAvail.tone}
-              deltaAriaLabel={deltaAvail.ariaLabel}
-            >
+            <KpiCard label="Availability" value={avg("availability").toFixed(1)} unit="%">
               <Sparkline data={spark(2)} />
             </KpiCard>
-
-            <KpiCard
-              label="Performance"
-              value={currPerf.toFixed(1)}
-              unit="%"
-              comparisonText={`${compareLabel} ${prior.avgPerformance.toFixed(1)}%`}
-              deltaText={deltaPerf.text}
-              deltaTone={deltaPerf.tone}
-              deltaAriaLabel={deltaPerf.ariaLabel}
-            >
+            <KpiCard label="Performance" value={avg("performance").toFixed(1)} unit="%">
               <Sparkline data={spark(-4)} />
             </KpiCard>
-
             <KpiCard
               label="Quality"
-              value={currQual.toFixed(1)}
+              value={avg("quality").toFixed(1)}
               unit="%"
-              comparisonText={`${compareLabel} ${prior.avgQuality.toFixed(1)}%`}
-              deltaText={deltaQual.text}
-              deltaTone={deltaQual.tone}
-              deltaAriaLabel={deltaQual.ariaLabel}
+              caption={<Delta value={avg("quality") - 96} />}
             >
               <Sparkline data={spark(8)} />
             </KpiCard>
-
             <KpiCard
               label="Good output vs plan"
               value={goodOutput.toLocaleString()}
-              comparisonText={`${compareLabel} ${prior.goodOutput.toLocaleString()}`}
               caption={`${attained}% attained · ${Math.max(0, planOutput - goodOutput).toLocaleString()} short`}
             >
               <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-grid">
@@ -184,12 +147,10 @@ function AnalyticsPage() {
                 />
               </div>
             </KpiCard>
-
             <KpiCard
               label="Biggest loss this week"
               value={loss.label}
-              comparisonText={`${compareLabel} ${priorLossMin.toLocaleString()} min`}
-              caption={`${loss.minutes.toLocaleString()} min lost`}
+              caption={`${loss.minutes} min lost`}
             >
               <Link
                 to="/analytics/loss-tree"
@@ -203,14 +164,11 @@ function AnalyticsPage() {
           <div className="grid w-full flex-1 items-stretch gap-3 grid-cols-1 lg:grid-cols-[1.4fr_1fr]">
             <Panel
               title="OEE Trend"
-              subtitle="Dashed line = reference target 75%"
+              subtitle={trendSubtitle}
+              action={<MetricDropdown selected={selectedMetrics} onChange={setSelectedMetrics} />}
               bodyClassName="relative min-h-[250px] h-full w-full flex-1"
             >
-              <TrendChart
-                data={trend}
-                keys={Object.keys(trend[0] ?? {}).filter((k) => k !== "label")}
-                reference={75}
-              />
+              <TrendChart data={trend} selectedMetrics={selectedMetrics} reference={75} />
             </Panel>
 
             <Panel
