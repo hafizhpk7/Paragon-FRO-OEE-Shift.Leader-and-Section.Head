@@ -12,6 +12,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type AxisDomain,
 } from "recharts";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -76,6 +77,19 @@ export function Sparkline({ data, dataKey = "v" }: { data: Point[]; dataKey?: st
   );
 }
 
+export function formatKNumber(num: number): string {
+  if (num === 0) return "0";
+  if (Math.abs(num) >= 1_000_000) {
+    const formatted = (num / 1_000_000).toFixed(1);
+    return `${formatted.endsWith(".0") ? formatted.slice(0, -2) : formatted}M`;
+  }
+  if (Math.abs(num) >= 1_000) {
+    const formatted = (num / 1_000).toFixed(1);
+    return `${formatted.endsWith(".0") ? formatted.slice(0, -2) : formatted}K`;
+  }
+  return num.toString();
+}
+
 interface TooltipEntry {
   dataKey?: string | number;
   name?: string;
@@ -87,17 +101,34 @@ function CustomTrendTooltip({
   active,
   payload,
   label,
+  unit,
 }: {
   active?: boolean;
   payload?: TooltipEntry[];
   label?: string;
+  unit?: string;
 }) {
   if (!active || !payload || !payload.length) return null;
 
-  const FIXED_ORDER = ["OEE", "Availability", "Performance", "Quality"];
-  const sortedPayload = [...payload].sort(
-    (a, b) => FIXED_ORDER.indexOf(String(a.dataKey)) - FIXED_ORDER.indexOf(String(b.dataKey)),
-  );
+  const FIXED_ORDER = [
+    "OEE",
+    "Availability",
+    "Performance",
+    "Quality",
+    "Actual",
+    "Plan",
+    "Speed",
+    "Cumulative %",
+  ];
+
+  const sortedPayload = [...payload].sort((a, b) => {
+    const idxA = FIXED_ORDER.indexOf(String(a.dataKey));
+    const idxB = FIXED_ORDER.indexOf(String(b.dataKey));
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return 0;
+  });
 
   return (
     <div className="rounded-lg border border-border bg-surface p-2.5 shadow-lg text-[11px] min-w-[140px] z-50">
@@ -106,12 +137,31 @@ function CustomTrendTooltip({
         {sortedPayload.map((entry) => {
           const key = String(entry.dataKey);
           const rawVal = entry.value;
-          const formattedVal =
-            rawVal !== null && rawVal !== undefined && !isNaN(Number(rawVal))
-              ? `${Number(rawVal).toFixed(1)}%`
-              : "—";
+          let formattedVal = "—";
+          if (rawVal !== null && rawVal !== undefined && !isNaN(Number(rawVal))) {
+            const num = Number(rawVal);
+            if (unit === "pcs" || key === "Actual" || key === "Plan") {
+              formattedVal = `${num.toLocaleString()} pcs`;
+            } else if (unit === "ppm" || key === "Speed") {
+              formattedVal = `${num.toFixed(1)} ppm`;
+            } else if (unit) {
+              formattedVal = `${num.toFixed(1)} ${unit}`;
+            } else {
+              formattedVal = `${num.toFixed(1)}%`;
+            }
+          }
+
           const config = METRIC_CONFIG[key as MetricId];
-          const dotColor = config?.dot ?? entry.color ?? "#3b82f6";
+          const fallbackColors = [
+            "var(--primary)",
+            "var(--tier-warn)",
+            "var(--tier-good)",
+            "var(--loss-quality)",
+          ];
+          const dotColor =
+            config?.dot ??
+            entry.color ??
+            fallbackColors[sortedPayload.indexOf(entry) % fallbackColors.length];
 
           return (
             <div key={key} className="flex items-center justify-between gap-3">
@@ -131,26 +181,41 @@ function CustomTrendTooltip({
   );
 }
 
+const DEFAULT_LINE_COLORS = [
+  "var(--primary)",
+  "var(--tier-warn)",
+  "var(--tier-good)",
+  "var(--loss-quality)",
+  "var(--muted-foreground)",
+];
+
 export function TrendChart({
   data,
   keys,
   selectedMetrics,
   reference,
   height,
+  domain,
+  unit,
+  yTickFormatter,
 }: {
   data: Point[];
   keys?: string[];
   selectedMetrics?: MetricId[];
   reference?: number;
   height?: number;
+  domain?: [string | number, string | number] | (string | number)[];
+  unit?: string;
+  yTickFormatter?: (value: number) => string;
 }) {
-  const activeMetrics = selectedMetrics ?? (keys as MetricId[]) ?? ["OEE"];
+  const activeMetrics = selectedMetrics ?? keys ?? ["OEE"];
 
-  // Sort active metrics in fixed order: OEE, Availability, Performance, Quality
-  const sortedMetrics = METRICS_ORDER.filter((m) => activeMetrics.includes(m));
+  // Sort active metrics if using multi-metric selector, otherwise preserve keys order
+  const sortedMetrics = keys ? keys : METRICS_ORDER.filter((m) => activeMetrics.includes(m));
 
-  // Show reference target line ONLY when OEE is selected
-  const showReference = reference !== undefined && activeMetrics.includes("OEE");
+  // Show reference target line if reference is set and (OEE is selected OR this is a single/custom metric chart like Speed)
+  const showReference =
+    reference !== undefined && (!selectedMetrics || selectedMetrics.includes("OEE"));
 
   if (!data || data.length === 0) {
     return (
@@ -160,22 +225,33 @@ export function TrendChart({
     );
   }
 
+  // Determine YAxis domain & tick formatter
+  const yDomain = domain ?? (selectedMetrics ? [0, 100] : ["auto", "auto"]);
+  const tickFormatter =
+    yTickFormatter ??
+    (unit === "pcs"
+      ? formatKNumber
+      : unit === "ppm"
+        ? (v: number) => String(Math.round(v))
+        : undefined);
+
   return (
     <div
       className="relative h-[250px] max-h-[350px] min-h-[200px] w-full"
       style={height ? { height } : undefined}
     >
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+        <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -12 }}>
           <CartesianGrid stroke="var(--grid)" vertical={false} />
           <XAxis dataKey="label" tick={AXIS} stroke="var(--grid)" />
           <YAxis
             tick={AXIS}
             stroke="var(--grid)"
-            domain={[0, 100]}
-            ticks={[0, 20, 40, 60, 80, 100]}
+            domain={yDomain as AxisDomain}
+            tickFormatter={tickFormatter}
+            width={38}
           />
-          <Tooltip content={<CustomTrendTooltip />} />
+          <Tooltip content={<CustomTrendTooltip unit={unit} />} />
           <Legend
             wrapperStyle={{ fontSize: 10, paddingTop: 4 }}
             formatter={(value) => <span className="text-foreground font-medium">{value}</span>}
@@ -183,15 +259,18 @@ export function TrendChart({
           {showReference && (
             <ReferenceLine y={reference} stroke="var(--muted-foreground)" strokeDasharray="4 4" />
           )}
-          {sortedMetrics.map((m) => {
-            const config = METRIC_CONFIG[m];
+          {sortedMetrics.map((m, i) => {
+            const config = METRIC_CONFIG[m as MetricId];
+            const strokeColor =
+              config?.stroke ?? DEFAULT_LINE_COLORS[i % DEFAULT_LINE_COLORS.length];
+
             return (
               <RLine
                 key={m}
                 name={m}
                 type="monotone"
                 dataKey={m}
-                stroke={config?.stroke ?? "var(--primary)"}
+                stroke={strokeColor}
                 strokeWidth={1.8}
                 dot={{ r: 2 }}
                 connectNulls={false}

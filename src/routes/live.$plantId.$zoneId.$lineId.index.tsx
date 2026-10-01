@@ -68,11 +68,16 @@ function LineDetail() {
 
   const buckets = bucketsFor(60, 1);
   const oeeTrend = trendSeries(`${line.id}-oee`, buckets, ["OEE"], liveLine.oee, 7);
-  const outputTrend = buckets.map((label, i) => ({
-    label,
-    "Cumulative %": Math.round(Math.min(100, ((i + 1) / buckets.length) * 100 * 0.92) * 10) / 10,
-    Plan: Math.round(((i + 1) / buckets.length) * 100),
-  }));
+  const outputTrend = buckets.map((label, i) => {
+    const progress = (i + 1) / buckets.length;
+    const plan = Math.round(line.outputTarget * progress);
+    const actual = Math.round(liveLine.outputActual * progress);
+    return {
+      label,
+      Actual: actual,
+      Plan: plan,
+    };
+  });
   const speedTrend = trendSeries(`${line.id}-spd`, buckets, ["Speed"], liveLine.speed, 14);
   const alarms = lineAlarms(line);
 
@@ -242,17 +247,29 @@ function LineDetail() {
             bodyClassName="h-[270px] w-full p-2"
           >
             <div className="h-[250px] w-full">
-              <TrendChart data={oeeTrend} keys={["OEE"]} reference={75} height={250} />
+              <TrendChart
+                data={oeeTrend}
+                keys={["OEE"]}
+                reference={75}
+                domain={[0, 100]}
+                height={250}
+              />
             </div>
           </Panel>
           <Panel
             title="Output trend"
-            subtitle="Cumulative %, resets on PO/batch change"
+            subtitle="Cumulative output vs plan (pcs)"
             className="h-[340px] w-full min-w-0"
             bodyClassName="h-[270px] w-full p-2"
           >
             <div className="h-[250px] w-full">
-              <TrendChart data={outputTrend} keys={["Cumulative %", "Plan"]} height={250} />
+              <TrendChart
+                data={outputTrend}
+                keys={["Actual", "Plan"]}
+                domain={["auto", "auto"]}
+                unit="pcs"
+                height={250}
+              />
             </div>
           </Panel>
           <Panel
@@ -266,6 +283,8 @@ function LineDetail() {
                 data={speedTrend}
                 keys={["Speed"]}
                 reference={line.stdSpeed}
+                domain={["auto", "auto"]}
+                unit="ppm"
                 height={250}
               />
             </div>
