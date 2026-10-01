@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface KpiItem {
@@ -7,6 +8,7 @@ export interface KpiItem {
   value: string | number;
   unit?: string;
   comparisonText?: string;
+  trend?: "up" | "down" | "neutral";
   delta?: {
     text: string;
     tone: "positive" | "negative" | "neutral";
@@ -108,13 +110,20 @@ export function KpiStrip({
                 )}
               </div>
 
-              {/* Comparison line or SubText */}
+              {/* Comparison line, Directional Trend Arrow, or SubText */}
               <div className="min-h-[18px] flex flex-col justify-end">
-                {!isNoData && item.comparisonText && (
-                  <span className="text-[11px] text-muted-foreground/80 truncate font-sans">
-                    {item.comparisonText}
-                  </span>
+                {!isNoData && (item.comparisonText || item.trend) && (
+                  <div className="flex items-center gap-1 text-[11px] font-sans text-muted-foreground/90 truncate">
+                    {item.trend === "up" && (
+                      <ArrowUp className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0 stroke-[2.5]" />
+                    )}
+                    {item.trend === "down" && (
+                      <ArrowDown className="size-3 text-red-600 dark:text-red-400 shrink-0 stroke-[2.5]" />
+                    )}
+                    {item.comparisonText && <span>{item.comparisonText}</span>}
+                  </div>
                 )}
+
                 {!isNoData && item.subText && (
                   <span
                     className={cn(
@@ -128,8 +137,7 @@ export function KpiStrip({
                   </span>
                 )}
 
-                {/* Delta line */}
-                {!isNoData && item.delta && (
+                {!isNoData && item.delta && !item.trend && (
                   <div
                     className={cn(
                       "text-xs font-bold font-mono tabular-nums tracking-tight mt-0.5",

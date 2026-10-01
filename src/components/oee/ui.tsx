@@ -150,6 +150,38 @@ export function Delta({
   );
 }
 
+export function KpiComparison({
+  current,
+  previous,
+  label,
+  className,
+}: {
+  current: number;
+  previous: number;
+  label?: string;
+  className?: string;
+}) {
+  const isUp = current >= previous;
+  const isDiff = current !== previous;
+  return (
+    <div
+      className={cn(
+        "inline-flex items-center gap-1 text-[11px] font-sans text-muted-foreground/90 truncate",
+        className,
+      )}
+    >
+      {isDiff && isUp && (
+        <ArrowUp className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0 stroke-[2.5]" />
+      )}
+      {isDiff && !isUp && (
+        <ArrowDown className="size-3 text-red-600 dark:text-red-400 shrink-0 stroke-[2.5]" />
+      )}
+      {label && <span>{label}</span>}
+      <span>{previous.toFixed(1)}%</span>
+    </div>
+  );
+}
+
 export function KpiCard({
   label,
   value,
@@ -160,6 +192,7 @@ export function KpiCard({
   comparisonLabel,
   period,
   delta,
+  trend,
   isUpdating = false,
   onClick,
   className,
@@ -173,6 +206,7 @@ export function KpiCard({
   comparisonLabel?: string;
   period?: PeriodId;
   delta?: number;
+  trend?: "up" | "down" | "neutral";
   isUpdating?: boolean;
   onClick?: () => void;
   className?: string;
@@ -216,7 +250,15 @@ export function KpiCard({
         {delta !== undefined && <Delta value={delta} />}
         {caption && <div className="text-[11px] text-muted-foreground">{caption}</div>}
         {comparisonLabel ? (
-          <span className="text-[10px] text-muted-foreground leading-tight">{comparisonLabel}</span>
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight">
+            {trend === "up" && (
+              <ArrowUp className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0 stroke-[2.5]" />
+            )}
+            {trend === "down" && (
+              <ArrowDown className="size-3 text-red-600 dark:text-red-400 shrink-0 stroke-[2.5]" />
+            )}
+            <span>{comparisonLabel}</span>
+          </div>
         ) : period && delta !== undefined ? (
           <ComparisonLabel period={period} />
         ) : null}

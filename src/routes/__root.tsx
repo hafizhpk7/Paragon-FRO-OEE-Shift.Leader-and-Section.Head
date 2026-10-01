@@ -123,6 +123,17 @@ function RootComponent() {
       ) {
         event.stopImmediatePropagation?.();
         event.preventDefault?.();
+        return;
+      }
+      if (
+        msg.includes("Failed to fetch dynamically imported module") ||
+        msg.includes("Importing a module script failed")
+      ) {
+        const reloadKey = "vite_reload_on_chunk_error";
+        if (!sessionStorage.getItem(reloadKey)) {
+          sessionStorage.setItem(reloadKey, "true");
+          window.location.reload();
+        }
       }
     };
     window.addEventListener("error", handleWindowError);

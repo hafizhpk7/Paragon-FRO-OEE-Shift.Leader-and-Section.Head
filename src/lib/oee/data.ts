@@ -765,7 +765,29 @@ export function getCompareLabel(span: string): string {
   return "vs Previous period";
 }
 
+/** Standardized delta percentage formatter */
+export function formatDeltaPercent(current: number, previous: number) {
+  const currFmt = Math.round(current * 10) / 10;
+  const prevFmt = Math.round(previous * 10) / 10;
+  const deltaVal = Math.round((currFmt - prevFmt) * 10) / 10;
+  const absVal = Math.abs(deltaVal).toFixed(1);
+
+  const text = deltaVal > 0 ? `+${absVal}%` : deltaVal < 0 ? `-${absVal}%` : "0.0%";
+  const tone: "positive" | "negative" | "neutral" =
+    deltaVal > 0 ? "positive" : deltaVal < 0 ? "negative" : "neutral";
+
+  const ariaLabel =
+    deltaVal > 0
+      ? `plus ${absVal} percentage points`
+      : deltaVal < 0
+        ? `minus ${absVal} percentage points`
+        : "0.0 percentage points";
+
+  return { text, tone, ariaLabel, deltaVal };
+}
+
 export type PriorPeriodKpis = {
+  // Aggregate / Waterfall KPIs (Loss Anatomy)
   scheduledTime: number;
   grossOperatingTime: number;
   netOperatingTime: number;
@@ -775,10 +797,20 @@ export type PriorPeriodKpis = {
   performancePct: number;
   qualityPct: number;
   oeePct: number;
+
+  // Homepage Line-Averaged KPIs
+  avgOee: number;
+  avgAvailability: number;
+  avgPerformance: number;
+  avgQuality: number;
+  goodOutput: number;
+
+  /** Get prior period minutes for a specific loss category */
+  getCategoryMinutes: (categoryLabel: string) => number;
 };
 
-/** Deterministic prior period KPIs for Loss Anatomy card strip */
-export function getPriorPeriodKpis(scopeSeed: string): PriorPeriodKpis {
+/** Deterministic prior period KPIs for Loss Anatomy and Homepage cards */
+export function getPriorPeriodKpis(scopeSeed: string, lines?: Line[]): PriorPeriodKpis {
   const priorSeed = `${scopeSeed}-prior`;
   const wf = waterfall(priorSeed);
   const scheduledTime = wf.milestones.find((m) => m.label === "Scheduled Time")?.value ?? 0;
@@ -795,6 +827,48 @@ export function getPriorPeriodKpis(scopeSeed: string): PriorPeriodKpis {
   const qualityPct = netOperatingTime > 0 ? (effectiveTime / netOperatingTime) * 100 : 0;
   const oeePct = scheduledTime > 0 ? (effectiveTime / scheduledTime) * 100 : 0;
 
+  // Homepage line-averaged prior values
+  const activeLines = lines && lines.length > 0 ? lines : [];
+  const currAvgOee = activeLines.length
+    ? activeLines.reduce((a, l) => a + l.oee, 0) / activeLines.length
+    : 75;
+  const currAvgAvail = activeLines.length
+    ? activeLines.reduce((a, l) => a + l.availability, 0) / activeLines.length
+    : 80;
+  const currAvgPerf = activeLines.length
+    ? activeLines.reduce((a, l) => a + l.performance, 0) / activeLines.length
+    : 85;
+  const currAvgQual = activeLines.length
+    ? activeLines.reduce((a, l) => a + l.quality, 0) / activeLines.length
+    : 95;
+  const currGoodOutput = activeLines.reduce((a, l) => a + l.outputActual, 0);
+
+  const avgOee = Math.min(
+    100,
+    Math.max(0, currAvgOee * (1 + rand(`${priorSeed}-avg-oee`, -0.05, 0.05, 3))),
+  );
+  const avgAvailability = Math.min(
+    100,
+    Math.max(0, currAvgAvail * (1 + rand(`${priorSeed}-avg-avail`, -0.05, 0.05, 3))),
+  );
+  const avgPerformance = Math.min(
+    100,
+    Math.max(0, currAvgPerf * (1 + rand(`${priorSeed}-avg-perf`, -0.05, 0.05, 3))),
+  );
+  const avgQuality = Math.min(
+    100,
+    Math.max(0, currAvgQual * (1 + rand(`${priorSeed}-avg-qual`, -0.05, 0.05, 3))),
+  );
+  const goodOutput = Math.max(
+    0,
+    Math.round(currGoodOutput * (1 + rand(`${priorSeed}-good-out`, -0.05, 0.05, 3))),
+  );
+
+  const getCategoryMinutes = (categoryLabel: string) => {
+    const found = priorTree.find((n) => n.label === categoryLabel);
+    return found ? found.minutes : 0;
+  };
+
   return {
     scheduledTime,
     grossOperatingTime,
@@ -805,6 +879,12 @@ export function getPriorPeriodKpis(scopeSeed: string): PriorPeriodKpis {
     performancePct,
     qualityPct,
     oeePct,
+    avgOee,
+    avgAvailability,
+    avgPerformance,
+    avgQuality,
+    goodOutput,
+    getCategoryMinutes,
   };
 }
 

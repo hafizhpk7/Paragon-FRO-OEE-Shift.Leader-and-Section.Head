@@ -67,55 +67,44 @@ function LossTreePage() {
     // Formatted current percentages
     const currOeeFmt = Math.round(oeePct * 10) / 10;
     const prevOeeFmt = Math.round(prior.oeePct * 10) / 10;
-    const deltaOee = Math.round((currOeeFmt - prevOeeFmt) * 10) / 10;
 
     const currAvailFmt = Math.round(availPct * 10) / 10;
     const prevAvailFmt = Math.round(prior.availabilityPct * 10) / 10;
-    const deltaAvail = Math.round((currAvailFmt - prevAvailFmt) * 10) / 10;
 
     const currPerfFmt = Math.round(perfPct * 10) / 10;
     const prevPerfFmt = Math.round(prior.performancePct * 10) / 10;
-    const deltaPerf = Math.round((currPerfFmt - prevPerfFmt) * 10) / 10;
 
     const currQualFmt = Math.round(qualPct * 10) / 10;
     const prevQualFmt = Math.round(prior.qualityPct * 10) / 10;
-    const deltaQual = Math.round((currQualFmt - prevQualFmt) * 10) / 10;
-
-    const formatDelta = (val: number) => {
-      const text = val > 0 ? `+${val.toFixed(1)} pts` : `${val.toFixed(1)} pts`;
-      const tone: "positive" | "negative" | "neutral" =
-        val > 0 ? "positive" : val < 0 ? "negative" : "neutral";
-      return { text, tone };
-    };
 
     return [
       {
         id: "oee",
         label: "OEE",
         value: `${currOeeFmt.toFixed(1)}%`,
+        trend: currOeeFmt >= prevOeeFmt ? "up" : "down",
         comparisonText: `${compareLabel} ${prevOeeFmt.toFixed(1)}%`,
-        delta: formatDelta(deltaOee),
       },
       {
         id: "availability",
         label: "Availability",
         value: `${currAvailFmt.toFixed(1)}%`,
+        trend: currAvailFmt >= prevAvailFmt ? "up" : "down",
         comparisonText: `${compareLabel} ${prevAvailFmt.toFixed(1)}%`,
-        delta: formatDelta(deltaAvail),
       },
       {
         id: "performance",
         label: "Performance",
         value: `${currPerfFmt.toFixed(1)}%`,
+        trend: currPerfFmt >= prevPerfFmt ? "up" : "down",
         comparisonText: `${compareLabel} ${prevPerfFmt.toFixed(1)}%`,
-        delta: formatDelta(deltaPerf),
       },
       {
         id: "quality",
         label: "Quality",
         value: `${currQualFmt.toFixed(1)}%`,
+        trend: currQualFmt >= prevQualFmt ? "up" : "down",
         comparisonText: `${compareLabel} ${prevQualFmt.toFixed(1)}%`,
-        delta: formatDelta(deltaQual),
       },
       {
         id: "total-loss",

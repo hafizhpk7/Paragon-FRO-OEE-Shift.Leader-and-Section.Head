@@ -43,13 +43,19 @@ export function useLiveClock(period: PeriodId): string | null {
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
     setMounted(true);
     setNow(new Date());
     if (period !== "live") return;
     const timer = window.setInterval(() => {
-      setNow(new Date());
+      if (isMounted) {
+        setNow(new Date());
+      }
     }, 1_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
   }, [period]);
 
   if (period !== "live") return "Static snapshot";
@@ -223,58 +229,73 @@ export function useLiveGroupState(period: PeriodId) {
   useEffect(() => {
     if (period !== "live") return;
 
+    let isMounted = true;
     let flashTimer: number | undefined;
 
     const refresh = () => {
-      setPrevGroup(group);
-      setPrevPlants(plants);
+      if (!isMounted) return;
 
-      const nextPlants: Record<
-        string,
-        { oee: number; availability: number; performance: number; quality: number }
-      > = {};
-      let totalOee = 0;
-      let totalA = 0;
-      let totalP = 0;
-      let totalQ = 0;
-
-      for (const p of PLANTS) {
-        const jitterA = Math.random() * 1.4 - 0.7;
-        const jitterP = Math.random() * 1.6 - 0.8;
-        const jitterQ = Math.random() * 0.4 - 0.2;
-
-        const availability = clampPercentage(p.availability + jitterA);
-        const performance = clampPercentage(p.performance + jitterP);
-        const quality = clampPercentage(p.quality + jitterQ);
-        const oee = clampPercentage((availability * performance * quality) / 10_000);
-
-        nextPlants[p.id] = { oee, availability, performance, quality };
-        totalOee += oee;
-        totalA += availability;
-        totalP += performance;
-        totalQ += quality;
-      }
-
-      setPlants(nextPlants);
-      const count = PLANTS.length || 1;
-      setGroup({
-        oee: clampPercentage(totalOee / count),
-        availability: clampPercentage(totalA / count),
-        performance: clampPercentage(totalP / count),
-        quality: clampPercentage(totalQ / count),
+      setGroup((currentGroup) => {
+        setPrevGroup(currentGroup);
+        return currentGroup;
       });
 
-      setIsUpdating(true);
-      if (flashTimer) window.clearTimeout(flashTimer);
-      flashTimer = window.setTimeout(() => setIsUpdating(false), FLASH_MS);
+      setPlants((currentPlants) => {
+        setPrevPlants(currentPlants);
+
+        const nextPlants: Record<
+          string,
+          { oee: number; availability: number; performance: number; quality: number }
+        > = {};
+        let totalOee = 0;
+        let totalA = 0;
+        let totalP = 0;
+        let totalQ = 0;
+
+        for (const p of PLANTS) {
+          const jitterA = Math.random() * 1.4 - 0.7;
+          const jitterP = Math.random() * 1.6 - 0.8;
+          const jitterQ = Math.random() * 0.4 - 0.2;
+
+          const availability = clampPercentage(p.availability + jitterA);
+          const performance = clampPercentage(p.performance + jitterP);
+          const quality = clampPercentage(p.quality + jitterQ);
+          const oee = clampPercentage((availability * performance * quality) / 10_000);
+
+          nextPlants[p.id] = { oee, availability, performance, quality };
+          totalOee += oee;
+          totalA += availability;
+          totalP += performance;
+          totalQ += quality;
+        }
+
+        const count = PLANTS.length || 1;
+        setGroup({
+          oee: clampPercentage(totalOee / count),
+          availability: clampPercentage(totalA / count),
+          performance: clampPercentage(totalP / count),
+          quality: clampPercentage(totalQ / count),
+        });
+
+        return nextPlants;
+      });
+
+      if (isMounted) {
+        setIsUpdating(true);
+        if (flashTimer) window.clearTimeout(flashTimer);
+        flashTimer = window.setTimeout(() => {
+          if (isMounted) setIsUpdating(false);
+        }, FLASH_MS);
+      }
     };
 
     const timer = window.setInterval(refresh, LIVE_REFRESH_MS);
     return () => {
+      isMounted = false;
       window.clearInterval(timer);
       if (flashTimer) window.clearTimeout(flashTimer);
     };
-  }, [group, period, plants]);
+  }, [period]);
 
   const staticDeltas = useMemo(() => getStaticMetricDeltas(period, "group"), [period]);
 
@@ -406,72 +427,87 @@ export function useLivePlantState(period: PeriodId, plantId: string) {
   useEffect(() => {
     if (period !== "live" || !basePlant) return;
 
+    let isMounted = true;
     let flashTimer: number | undefined;
 
     const refresh = () => {
-      setPrevPlant(plant);
-      setPrevZones(zones);
+      if (!isMounted) return;
 
-      const nextZones: Record<
-        string,
-        {
-          name: string;
-          lines: Line[];
-          oee: number;
-          availability: number;
-          performance: number;
-          quality: number;
-        }
-      > = {};
-      let totalOee = 0;
-      let totalA = 0;
-      let totalP = 0;
-      let totalQ = 0;
-
-      for (const z of basePlant.zones) {
-        const jitterA = Math.random() * 1.5 - 0.75;
-        const jitterP = Math.random() * 1.6 - 0.8;
-        const jitterQ = Math.random() * 0.4 - 0.2;
-
-        const availability = clampPercentage(z.availability + jitterA);
-        const performance = clampPercentage(z.performance + jitterP);
-        const quality = clampPercentage(z.quality + jitterQ);
-        const oee = clampPercentage((availability * performance * quality) / 10_000);
-
-        nextZones[z.id] = {
-          name: z.name,
-          lines: z.lines,
-          oee,
-          availability,
-          performance,
-          quality,
-        };
-        totalOee += oee;
-        totalA += availability;
-        totalP += performance;
-        totalQ += quality;
-      }
-
-      setZones(nextZones);
-      const count = basePlant.zones.length || 1;
-      setPlant({
-        oee: clampPercentage(totalOee / count),
-        availability: clampPercentage(totalA / count),
-        performance: clampPercentage(totalP / count),
-        quality: clampPercentage(totalQ / count),
+      setPlant((currPlant) => {
+        setPrevPlant(currPlant);
+        return currPlant;
       });
 
-      setIsUpdating(true);
-      if (flashTimer) window.clearTimeout(flashTimer);
-      flashTimer = window.setTimeout(() => setIsUpdating(false), FLASH_MS);
+      setZones((currZones) => {
+        setPrevZones(currZones);
+
+        const nextZones: Record<
+          string,
+          {
+            name: string;
+            lines: Line[];
+            oee: number;
+            availability: number;
+            performance: number;
+            quality: number;
+          }
+        > = {};
+        let totalOee = 0;
+        let totalA = 0;
+        let totalP = 0;
+        let totalQ = 0;
+
+        for (const z of basePlant.zones) {
+          const jitterA = Math.random() * 1.5 - 0.75;
+          const jitterP = Math.random() * 1.6 - 0.8;
+          const jitterQ = Math.random() * 0.4 - 0.2;
+
+          const availability = clampPercentage(z.availability + jitterA);
+          const performance = clampPercentage(z.performance + jitterP);
+          const quality = clampPercentage(z.quality + jitterQ);
+          const oee = clampPercentage((availability * performance * quality) / 10_000);
+
+          nextZones[z.id] = {
+            name: z.name,
+            lines: z.lines,
+            oee,
+            availability,
+            performance,
+            quality,
+          };
+          totalOee += oee;
+          totalA += availability;
+          totalP += performance;
+          totalQ += quality;
+        }
+
+        const count = basePlant.zones.length || 1;
+        setPlant({
+          oee: clampPercentage(totalOee / count),
+          availability: clampPercentage(totalA / count),
+          performance: clampPercentage(totalP / count),
+          quality: clampPercentage(totalQ / count),
+        });
+
+        return nextZones;
+      });
+
+      if (isMounted) {
+        setIsUpdating(true);
+        if (flashTimer) window.clearTimeout(flashTimer);
+        flashTimer = window.setTimeout(() => {
+          if (isMounted) setIsUpdating(false);
+        }, FLASH_MS);
+      }
     };
 
     const timer = window.setInterval(refresh, LIVE_REFRESH_MS);
     return () => {
+      isMounted = false;
       window.clearInterval(timer);
       if (flashTimer) window.clearTimeout(flashTimer);
     };
-  }, [basePlant, period, plant, zones]);
+  }, [basePlant, period]);
 
   const staticDeltas = useMemo(() => getStaticMetricDeltas(period, plantId), [period, plantId]);
 
@@ -593,18 +629,18 @@ export function useLiveZoneState(
   useEffect(() => {
     if (period !== "live") return;
 
+    let isMounted = true;
     let flashTimer: number | undefined;
 
     const refresh = () => {
+      if (!isMounted) return;
+
       setRefreshCount((current) => {
         const next = current + 1;
 
         setMetrics((currentMetrics) => {
-          // Store previous values to calculate delta "Compared to 30s ago"
           setPreviousMetrics(currentMetrics);
 
-          // Slightly randomize/fluctuate values around base to simulate real-time machine sampling
-          // Range: availability +/-0.8%, performance +/-0.9%, quality +/-0.3%
           const jitterA = Math.random() * 1.6 - 0.8;
           const jitterP = Math.random() * 1.8 - 0.9;
           const jitterQ = Math.random() * 0.6 - 0.3;
@@ -617,7 +653,6 @@ export function useLiveZoneState(
           return { availability, performance, quality, oee };
         });
 
-        // Small probability of a line status shift during sampling
         if (lines.length > 0 && Math.random() < 0.4) {
           const lineIndex = Math.floor(Math.random() * lines.length);
           const line = lines[lineIndex];
@@ -643,10 +678,13 @@ export function useLiveZoneState(
           }
         }
 
-        // Trigger flash effect
-        setIsUpdating(true);
-        if (flashTimer) window.clearTimeout(flashTimer);
-        flashTimer = window.setTimeout(() => setIsUpdating(false), FLASH_MS);
+        if (isMounted) {
+          setIsUpdating(true);
+          if (flashTimer) window.clearTimeout(flashTimer);
+          flashTimer = window.setTimeout(() => {
+            if (isMounted) setIsUpdating(false);
+          }, FLASH_MS);
+        }
 
         return next;
       });
@@ -654,6 +692,7 @@ export function useLiveZoneState(
 
     const timer = window.setInterval(refresh, LIVE_REFRESH_MS);
     return () => {
+      isMounted = false;
       window.clearInterval(timer);
       if (flashTimer) window.clearTimeout(flashTimer);
     };
@@ -731,36 +770,46 @@ export function useLiveLineState(
   useEffect(() => {
     if (period !== "live" || !baseLine) return;
 
+    let isMounted = true;
     let flashTimer: number | undefined;
 
     const refresh = () => {
-      setPrevLine(line);
+      if (!isMounted) return;
 
-      const jitterOee = Math.random() * 1.4 - 0.7;
-      const jitterPerf = Math.random() * 1.6 - 0.8;
-      const jitterSpeed = Math.floor(Math.random() * 7 - 3);
-      const unitsProduced = Math.floor(Math.random() * 6 + 4);
+      setLine((curr) => {
+        setPrevLine(curr);
 
-      setLine((curr) => ({
-        oee: clampPercentage(baseLine.oee + jitterOee),
-        performance: clampPercentage(baseLine.performance + jitterPerf),
-        speed: Math.max(0, baseLine.speed + jitterSpeed),
-        outputActual: curr.outputActual + unitsProduced,
-        runningMinutes: curr.runningMinutes + 0.5,
-        status: curr.status,
-      }));
+        const jitterOee = Math.random() * 1.4 - 0.7;
+        const jitterPerf = Math.random() * 1.6 - 0.8;
+        const jitterSpeed = Math.floor(Math.random() * 7 - 3);
+        const unitsProduced = Math.floor(Math.random() * 6 + 4);
 
-      setIsUpdating(true);
-      if (flashTimer) window.clearTimeout(flashTimer);
-      flashTimer = window.setTimeout(() => setIsUpdating(false), FLASH_MS);
+        return {
+          oee: clampPercentage(baseLine.oee + jitterOee),
+          performance: clampPercentage(baseLine.performance + jitterPerf),
+          speed: Math.max(0, baseLine.speed + jitterSpeed),
+          outputActual: curr.outputActual + unitsProduced,
+          runningMinutes: curr.runningMinutes + 0.5,
+          status: curr.status,
+        };
+      });
+
+      if (isMounted) {
+        setIsUpdating(true);
+        if (flashTimer) window.clearTimeout(flashTimer);
+        flashTimer = window.setTimeout(() => {
+          if (isMounted) setIsUpdating(false);
+        }, FLASH_MS);
+      }
     };
 
     const timer = window.setInterval(refresh, LIVE_REFRESH_MS);
     return () => {
+      isMounted = false;
       window.clearInterval(timer);
       if (flashTimer) window.clearTimeout(flashTimer);
     };
-  }, [baseLine, line, period]);
+  }, [baseLine, period]);
 
   const staticDeltas = useMemo(
     () => getStaticMetricDeltas(period, `${plantId}-${zoneId}-${lineId}`),
@@ -837,23 +886,27 @@ export function useLiveMachineState(
   useEffect(() => {
     if (period !== "live" || !baseMachine) return;
 
+    let isMounted = true;
     let flashTimer: number | undefined;
 
     const refresh = () => {
-      setPrevMachine(machine);
+      if (!isMounted) return;
 
-      const jitterA = Math.random() * 1.4 - 0.7;
-      const jitterP = Math.random() * 1.6 - 0.8;
-      const jitterQ = Math.random() * 0.4 - 0.2;
+      setMachine((currMachine) => {
+        setPrevMachine(currMachine);
 
-      const availability = clampPercentage(baseMachine.availability + jitterA);
-      const performance = clampPercentage(baseMachine.performance + jitterP);
-      const quality = clampPercentage(baseMachine.quality + jitterQ);
-      const oee = clampPercentage((availability * performance * quality) / 10_000);
+        const jitterA = Math.random() * 1.4 - 0.7;
+        const jitterP = Math.random() * 1.6 - 0.8;
+        const jitterQ = Math.random() * 0.4 - 0.2;
 
-      setMachine({ oee, availability, performance, quality });
+        const availability = clampPercentage(baseMachine.availability + jitterA);
+        const performance = clampPercentage(baseMachine.performance + jitterP);
+        const quality = clampPercentage(baseMachine.quality + jitterQ);
+        const oee = clampPercentage((availability * performance * quality) / 10_000);
 
-      // Slight fluctuations to machine sensors
+        return { oee, availability, performance, quality };
+      });
+
       setSensors((currentSensors) =>
         currentSensors.map((s) => {
           let jitter = 0;
@@ -871,17 +924,22 @@ export function useLiveMachineState(
         }),
       );
 
-      setIsUpdating(true);
-      if (flashTimer) window.clearTimeout(flashTimer);
-      flashTimer = window.setTimeout(() => setIsUpdating(false), FLASH_MS);
+      if (isMounted) {
+        setIsUpdating(true);
+        if (flashTimer) window.clearTimeout(flashTimer);
+        flashTimer = window.setTimeout(() => {
+          if (isMounted) setIsUpdating(false);
+        }, FLASH_MS);
+      }
     };
 
     const timer = window.setInterval(refresh, LIVE_REFRESH_MS);
     return () => {
+      isMounted = false;
       window.clearInterval(timer);
       if (flashTimer) window.clearTimeout(flashTimer);
     };
-  }, [baseMachine, machine, period]);
+  }, [baseMachine, period]);
 
   const staticDeltas = useMemo(
     () => getStaticMetricDeltas(period, `${plantId}-${zoneId}-${lineId}-${machineId}`),

@@ -17,6 +17,7 @@ import {
   type ShiftInfo,
 } from "@/lib/oee/shiftClock";
 import {
+  DOWNTIME_THRESHOLD_SEC,
   WINDOW_SEC,
   type MachineEvent,
   type ShiftSnapshot,
@@ -63,6 +64,100 @@ export function MachineEvents({
   const containerRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState<number>(800);
 
+  // 1. Real-time polling tick every 2 seconds when in LIVE mode
+  const [nowTime, setNowTime] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    if (!isLivePeriod) return;
+
+    setNowTime(new Date());
+
+    const interval = setInterval(() => {
+      setNowTime(new Date());
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isLivePeriod]);
+
+  // Calculate current elapsed seconds in shift timezone
+  const currentElapsedSec = useMemo(() => {
+    if (!isLivePeriod) return shift.elapsedSec;
+    const nowSec = Math.floor(nowTime.getTime() / 1000);
+    const elapsed = nowSec - shift.startSec;
+    return Math.min(SHIFT_SECONDS, Math.max(0, elapsed));
+  }, [isLivePeriod, nowTime, shift.startSec, shift.elapsedSec]);
+
+  // 2. Active Event Extension:
+  // Automatically extend the current/latest machine event block to match current ticking time
+  const extendedEvents = useMemo(() => {
+    if (!isLivePeriod || events.length === 0) return events;
+
+    const ongoingEvIdx = events.findIndex((e) => e.isOngoing);
+    const targetIdx = ongoingEvIdx !== -1 ? ongoingEvIdx : events.length - 1;
+
+    return events.map((ev, idx) => {
+      if (idx === targetIdx || ev.isOngoing) {
+        const newEnd = Math.max(ev.startSec + 1, currentElapsedSec);
+        const newDur = Math.max(1, newEnd - ev.startSec);
+        let newType = ev.type;
+        if (newType === "minor_stop" && newDur >= DOWNTIME_THRESHOLD_SEC) {
+          newType = "downtime";
+        }
+        return {
+          ...ev,
+          endSec: newEnd,
+          durationSec: newDur,
+          type: newType,
+          isOngoing: true,
+        };
+      }
+      return ev;
+    });
+  }, [events, isLivePeriod, currentElapsedSec]);
+
+  // 3. Extend Timeline Windows dynamically up to currentElapsedSec
+  const extendedWindows = useMemo(() => {
+    if (!isLivePeriod || windows.length === 0) return windows;
+
+    const activeEv =
+      extendedEvents.find((e) => e.isOngoing) || extendedEvents[extendedEvents.length - 1];
+    const activeType = activeEv ? activeEv.type : "run";
+
+    return windows.map((w) => {
+      if (w.startSec < currentElapsedSec) {
+        if (activeEv && w.startSec >= activeEv.startSec && w.startSec < currentElapsedSec) {
+          let speedPpm = idealRatePpm;
+          let output = (idealRatePpm * WINDOW_SEC) / 60;
+          if (
+            activeType === "downtime" ||
+            activeType === "minor_stop" ||
+            activeType === "planned"
+          ) {
+            speedPpm = 0;
+            output = 0;
+          } else if (activeType === "speed_loss") {
+            const pct = activeEv.speedPct ?? 78;
+            speedPpm = Math.round((idealRatePpm * pct) / 100);
+            output = Math.round((output * pct) / 100);
+          }
+
+          const classifiedSec = activeEv.causes.reduce((sum, c) => sum + c.durationSec, 0);
+          const needsReason = activeType !== "run" && classifiedSec < activeEv.durationSec;
+
+          return {
+            ...w,
+            type: activeType,
+            speedPpm,
+            output,
+            eventId: activeEv.id,
+            needsReason,
+          };
+        }
+      }
+      return w;
+    });
+  }, [windows, isLivePeriod, currentElapsedSec, extendedEvents, idealRatePpm]);
+
   // ResizeObserver for chart width
   useEffect(() => {
     if (!containerRef.current) return;
@@ -76,24 +171,40 @@ export function MachineEvents({
     return () => observer.disconnect();
   }, [isExpanded]);
 
-  // Determine time range boundaries
+  // 4. Dynamic X-Axis domain boundaries:
+  // Dynamically updates maximum time boundary on every tick so graph visually scrolls/ticks forward
   const timeRange = useMemo(() => {
     if (rangeView === "last2h") {
-      const endSec = isLivePeriod ? shift.elapsedSec : SHIFT_SECONDS;
+      const endSec = isLivePeriod ? currentElapsedSec : shift.elapsedSec;
       const startSec = Math.max(0, endSec - 7200); // 2 hours
       return { startSec, endSec, durationSec: 7200, bucketMinutes: 10 };
     }
+
+    if (isLivePeriod) {
+      // Dynamic boundary ticks forward with current time
+      const endSec = Math.min(SHIFT_SECONDS, Math.max(1800, currentElapsedSec));
+      return {
+        startSec: 0,
+        endSec,
+        durationSec: endSec,
+        bucketMinutes: endSec <= 7200 ? 5 : endSec <= 14400 ? 10 : 30,
+      };
+    }
+
     return {
       startSec: 0,
       endSec: SHIFT_SECONDS,
       durationSec: SHIFT_SECONDS,
       bucketMinutes: 30,
     };
-  }, [rangeView, shift.elapsedSec, isLivePeriod]);
+  }, [rangeView, isLivePeriod, currentElapsedSec, shift.elapsedSec]);
 
-  // Output buckets (30 min for Full Shift = 16 buckets, 10 min for Last 2h = 12 buckets)
+  // Output buckets
   const buckets = useMemo(() => {
-    const bucketCount = timeRange.durationSec / 60 / timeRange.bucketMinutes;
+    const bucketCount = Math.max(
+      1,
+      Math.round(timeRange.durationSec / 60 / timeRange.bucketMinutes),
+    );
     const bucketSec = timeRange.bucketMinutes * 60;
     const list: {
       index: number;
@@ -109,11 +220,10 @@ export function MachineEvents({
     for (let b = 0; b < bucketCount; b++) {
       const bStart = timeRange.startSec + b * bucketSec;
       const bEnd = bStart + bucketSec;
-      const isFuture = bStart >= shift.elapsedSec;
-      const isCurrent = shift.elapsedSec >= bStart && shift.elapsedSec < bEnd;
+      const isFuture = bStart >= currentElapsedSec;
+      const isCurrent = currentElapsedSec >= bStart && currentElapsedSec < bEnd;
 
-      // Filter windows inside this bucket
-      const bWindows = windows.filter((w) => w.startSec >= bStart && w.endSec <= bEnd);
+      const bWindows = extendedWindows.filter((w) => w.startSec >= bStart && w.endSec <= bEnd);
       const output = bWindows.reduce((sum, w) => sum + w.output, 0);
       const target = idealRatePpm * timeRange.bucketMinutes;
 
@@ -130,7 +240,7 @@ export function MachineEvents({
       });
     }
     return list;
-  }, [timeRange, windows, idealRatePpm, shift]);
+  }, [timeRange, extendedWindows, idealRatePpm, shift, currentElapsedSec]);
 
   // Height allocations for SVG rows
   const chartHeight = 220;
@@ -139,7 +249,6 @@ export function MachineEvents({
   const usableWidth = Math.max(100, chartWidth - paddingLeft - paddingRight);
 
   // Row Y boundaries
-  const outputRowHeight = 24;
   const speedRowY = 32;
   const speedRowHeight = 110;
   const lossRowY = 152;
@@ -151,8 +260,7 @@ export function MachineEvents({
 
   // Speed line path calculation
   const speedPoints = useMemo(() => {
-    // Filter windows in view range
-    const visibleWindows = windows.filter(
+    const visibleWindows = extendedWindows.filter(
       (w) => w.startSec >= timeRange.startSec && w.endSec <= timeRange.endSec,
     );
     if (visibleWindows.length === 0) return { path: "", area: "" };
@@ -161,7 +269,7 @@ export function MachineEvents({
     visibleWindows.forEach((w) => {
       const tNorm = (w.startSec + 15 - timeRange.startSec) / timeRange.durationSec;
       const x = paddingLeft + tNorm * usableWidth;
-      const isFuture = w.startSec >= shift.elapsedSec;
+      const isFuture = w.startSec >= currentElapsedSec;
       const val = isFuture ? 0 : w.speedPpm;
       const yNorm = Math.min(1, Math.max(0, val / maxSpeedY));
       const y = speedRowY + speedRowHeight - yNorm * speedRowHeight;
@@ -182,13 +290,13 @@ export function MachineEvents({
     const areaPath = `${linePath} L ${last.x} ${baseLineY} L ${first.x} ${baseLineY} Z`;
 
     return { path: linePath, area: areaPath };
-  }, [windows, timeRange, shift.elapsedSec, paddingLeft, usableWidth, maxSpeedY]);
+  }, [extendedWindows, timeRange, currentElapsedSec, paddingLeft, usableWidth, maxSpeedY]);
 
   // Standard rate line Y
   const stdLineY = speedRowY + speedRowHeight - (idealRatePpm / maxSpeedY) * speedRowHeight;
 
   // Now Marker X position
-  const nowNorm = (shift.elapsedSec - timeRange.startSec) / timeRange.durationSec;
+  const nowNorm = (currentElapsedSec - timeRange.startSec) / timeRange.durationSec;
   const nowX = nowNorm >= 0 && nowNorm <= 1 ? paddingLeft + nowNorm * usableWidth : null;
 
   // Mouse move over SVG chart
@@ -206,11 +314,11 @@ export function MachineEvents({
     const hoveredSec = timeRange.startSec + tNorm * timeRange.durationSec;
     setHoveredX(clientX);
 
-    const win = windows.find((w) => hoveredSec >= w.startSec && hoveredSec < w.endSec);
+    const win = extendedWindows.find((w) => hoveredSec >= w.startSec && hoveredSec < w.endSec);
     setHoveredWindow(win || null);
 
-    const ev = events.find(
-      (e) => hoveredSec >= e.startSec && hoveredSec < (e.isOngoing ? shift.elapsedSec : e.endSec),
+    const ev = extendedEvents.find(
+      (e) => hoveredSec >= e.startSec && hoveredSec < (e.isOngoing ? currentElapsedSec : e.endSec),
     );
     setHoveredEvent(ev || null);
   };
@@ -221,12 +329,17 @@ export function MachineEvents({
     setHoveredEvent(null);
   };
 
-  // Click segment to clarify loss (§3.5, §3.7)
+  // Click segment to clarify loss
   const handleChartClick = () => {
     if (hoveredEvent && hoveredEvent.type !== "run") {
       onSelectEvent(hoveredEvent.id);
     }
   };
+
+  // Active event duration for header
+  const activeEv =
+    extendedEvents.find((e) => e.isOngoing) || extendedEvents[extendedEvents.length - 1];
+  const activeEvDurationSec = activeEv ? currentElapsedSec - activeEv.startSec : 0;
 
   // -------------------------------------------------------------
   // RENDER: COLLAPSED STRIP VIEW
@@ -303,9 +416,9 @@ export function MachineEvents({
         <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground mt-1">
           <span>{formatTimeWib(shift.startSec, false)}</span>
           <div className="relative h-2.5 flex-1 rounded-full overflow-hidden bg-muted/60 flex">
-            {windows.map((w, idx) => {
+            {extendedWindows.map((w, idx) => {
               if (idx % 4 !== 0) return null; // subsample for thin bar
-              const isFuture = w.startSec >= shift.elapsedSec;
+              const isFuture = w.startSec >= currentElapsedSec;
               return (
                 <div
                   key={w.index}
@@ -378,7 +491,7 @@ export function MachineEvents({
               {snapshot.status.label}
             </span>
             <span className="text-[10px] text-muted-foreground font-mono ml-1">
-              ({formatDuration(snapshot.status.sinceSec)})
+              ({formatDuration(activeEvDurationSec)})
             </span>
           </div>
 
@@ -499,7 +612,7 @@ export function MachineEvents({
         </span>
       </div>
 
-      {/* SVG Chart Container (horizontally scrollable on mobile) */}
+      {/* SVG Chart Container */}
       <div className="relative w-full overflow-x-auto p-2 bg-surface">
         <div className="min-w-[640px] relative">
           <svg
@@ -616,14 +729,14 @@ export function MachineEvents({
             )}
 
             {/* 3. Loss Type Band: Colored segments with hatch on needs-reason */}
-            {windows
+            {extendedWindows
               .filter((w) => w.startSec >= timeRange.startSec && w.endSec <= timeRange.endSec)
               .map((w) => {
                 const wWidth = (WINDOW_SEC / timeRange.durationSec) * usableWidth;
                 const x =
                   paddingLeft +
                   ((w.startSec - timeRange.startSec) / timeRange.durationSec) * usableWidth;
-                const isFuture = w.startSec >= shift.elapsedSec;
+                const isFuture = w.startSec >= currentElapsedSec;
                 const isSelected = w.eventId && w.eventId === selectedEventId;
 
                 let fill = "var(--loss-run)";
@@ -654,7 +767,7 @@ export function MachineEvents({
                         className="cursor-pointer"
                       />
                     )}
-                    {/* Selected event outline highlight (§3.5) */}
+                    {/* Selected event outline highlight */}
                     {isSelected && (
                       <rect
                         x={x}
@@ -729,7 +842,7 @@ export function MachineEvents({
                   textAnchor="middle"
                   className="fill-white font-mono text-[9px] font-bold"
                 >
-                  {formatTimeWib(shift.startSec + shift.elapsedSec, false)}
+                  {formatTimeWib(shift.startSec + currentElapsedSec, true)}
                 </text>
               </g>
             )}
@@ -749,7 +862,7 @@ export function MachineEvents({
             )}
           </svg>
 
-          {/* Interactive Hover Tooltip (stays constrained within panel) */}
+          {/* Interactive Hover Tooltip */}
           {hoveredX !== null && hoveredWindow && (
             <div
               className="absolute pointer-events-none z-30 rounded-md border border-border bg-surface/95 p-2 shadow-lg backdrop-blur-md text-xs transition-all max-w-[240px]"
