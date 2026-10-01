@@ -5,9 +5,16 @@ import { fallback, zodValidator } from "@tanstack/zod-adapter";
 
 import { MeasureToggle, ParetoChart, type Measure } from "@/components/oee/charts";
 import { FilterBar } from "@/components/oee/filter-bar";
-import { EmptyState, NoDataForFilters, PageHeader, Panel } from "@/components/oee/ui";
+import {
+  EmptyState,
+  KpiStrip,
+  NoDataForFilters,
+  PageHeader,
+  Panel,
+  type KpiItem,
+} from "@/components/oee/ui";
 import { useApp } from "@/lib/oee/app-context";
-import { findNode, lossTree, type LossNode } from "@/lib/oee/data";
+import { findNode, getLossNodeStats, getScopePpm, lossTree, type LossNode } from "@/lib/oee/data";
 import { useScope } from "@/lib/oee/scope";
 
 const searchSchema = z.object({
@@ -48,14 +55,98 @@ function ParetoPage() {
   const initialParent = tree.find((n) => n.label === search.category)?.id ?? "";
   const [parentId, setParentId] = useState<string>(initialParent);
   const [childId, setChildId] = useState<string>("");
+  const [child2Id, setChild2Id] = useState<string>("");
 
   const dashboard = role === "section-head" ? "Section Head Dashboard" : "Shift Leader Dashboard";
   const val = (n: LossNode) => (measure === "minutes" ? n.minutes : n.occurrences);
   const toRow = (n: LossNode) => ({ id: n.id, label: n.label, value: val(n) });
 
-  const parent = parentId ? findNode(tree, parentId) : undefined;
-  const child = childId ? findNode(tree, childId) : undefined;
-  const rankNode = child ?? parent;
+  const activeParent = parentId ? findNode(tree, parentId) : undefined;
+  const activeChild = activeParent && childId ? findNode(tree, childId) : undefined;
+  const activeChild2 = activeChild && child2Id ? findNode(tree, child2Id) : undefined;
+
+  const deepestNode = activeChild2 ?? activeChild ?? activeParent;
+  const rankNode = deepestNode;
+
+  // Selected issue title for card header (e.g. "Breakdown › Bearing seizure analysis · BOP21, BOP22, BOP23")
+  const selectedIssueTitle = useMemo(() => {
+    if (activeChild2 && activeChild && activeParent) {
+      return `${activeParent.label} › ${activeChild.label} › ${activeChild2.label}`;
+    }
+    if (activeChild && activeParent) {
+      return `${activeParent.label} › ${activeChild.label}`;
+    }
+    if (activeParent) {
+      return activeParent.label;
+    }
+    return "All loss categories";
+  }, [activeParent, activeChild, activeChild2]);
+
+  // Scope label text (<= 3 lines list names, otherwise "{n} lines")
+  const scopeText = useMemo(() => {
+    if (scope.lines.length <= 3) {
+      return scope.lines.map((l) => l.id).join(", ");
+    }
+    return `${scope.lines.length} lines`;
+  }, [scope.lines]);
+
+  // Calculate Node Stats & PPM
+  const nodeKey = deepestNode?.id ?? "all";
+  const stats = useMemo(
+    () => getLossNodeStats(scope.seed, nodeKey, tree),
+    [scope.seed, nodeKey, tree],
+  );
+  const ppm = useMemo(() => getScopePpm(scope.lines), [scope.lines]);
+
+  const cell1Label = deepestNode ? `${deepestNode.label} events` : "Loss events";
+  const kind = stats.kind;
+
+  const avgValueText = useMemo(() => {
+    if (stats.events <= 0) return "—";
+    const rawAvg = stats.minutes / stats.events;
+    if (rawAvg >= 10) {
+      return Math.round(rawAvg).toLocaleString();
+    }
+    return (Math.round(rawAvg * 10) / 10).toFixed(1);
+  }, [stats.minutes, stats.events]);
+
+  const paretoKpiItems: KpiItem[] = useMemo(() => {
+    const totalLostPcs = stats.minutes * ppm;
+
+    return [
+      {
+        id: "events",
+        label: cell1Label,
+        value: stats.events > 0 ? stats.events.toLocaleString() : "—",
+      },
+      {
+        id: "total-lost",
+        label: "Total lost",
+        value: stats.minutes > 0 ? stats.minutes.toLocaleString() : "0",
+        unit: "min",
+      },
+      {
+        id: "longest",
+        label: kind === "stop" ? "Longest stop" : "Longest event",
+        value: stats.longest > 0 ? stats.longest.toLocaleString() : "—",
+        unit: stats.longest > 0 ? "min" : undefined,
+      },
+      {
+        id: "avg",
+        label: kind === "stop" ? "Avg stop" : "Avg event",
+        value: avgValueText,
+        unit: stats.events > 0 ? "min" : undefined,
+      },
+      {
+        id: "estimated-output",
+        label: "Estimated lost output",
+        value: totalLostPcs.toLocaleString(),
+        unit: "pcs",
+        subText: `${stats.minutes.toLocaleString()} min x ${ppm} ppm`,
+        emphasized: true,
+      },
+    ];
+  }, [cell1Label, stats, ppm, avgValueText, kind]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
@@ -76,6 +167,22 @@ function ParetoPage() {
         </main>
       ) : (
         <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
+          {/* Analysis Card with Header & 5-Cell KPI Strip */}
+          <Panel
+            title={`${selectedIssueTitle} analysis · ${scopeText}`}
+            action={
+              <span className="text-xs text-muted-foreground font-medium">{scope.spanLabel}</span>
+            }
+            bodyClassName="p-0"
+          >
+            <KpiStrip
+              ariaLabel="Loss analysis KPIs"
+              columnsDesktop={5}
+              items={paretoKpiItems}
+              className="border-0 shadow-none rounded-none rounded-b-lg"
+            />
+          </Panel>
+
           <Panel
             className="min-h-[340px] flex-1 w-full min-w-0"
             title="Parent Issues"
@@ -96,6 +203,7 @@ function ParetoPage() {
               onSelect={(id) => {
                 setParentId(id);
                 setChildId("");
+                setChild2Id("");
               }}
             />
           </Panel>
@@ -103,13 +211,16 @@ function ParetoPage() {
           <div className="grid w-full flex-1 items-stretch gap-3 grid-cols-1 lg:grid-cols-2">
             <Panel
               title="Child Issues Level 1"
-              subtitle={parent ? `Scoped to ${parent.label}` : undefined}
+              subtitle={activeParent ? `Scoped to ${activeParent.label}` : undefined}
             >
-              {parent?.children?.length ? (
+              {activeParent?.children?.length ? (
                 <ParetoChart
-                  data={[...parent.children].sort((a, b) => val(b) - val(a)).map(toRow)}
+                  data={[...activeParent.children].sort((a, b) => val(b) - val(a)).map(toRow)}
                   selected={childId}
-                  onSelect={(id) => setChildId(id)}
+                  onSelect={(id) => {
+                    setChildId(id);
+                    setChild2Id("");
+                  }}
                 />
               ) : (
                 <EmptyState message="Silahkan Pilih Child Issues Level 1" />
@@ -118,11 +229,13 @@ function ParetoPage() {
 
             <Panel
               title="Child Issues Level 2"
-              subtitle={child ? `Scoped to ${child.label}` : undefined}
+              subtitle={activeChild ? `Scoped to ${activeChild.label}` : undefined}
             >
-              {child?.children?.length ? (
+              {activeChild?.children?.length ? (
                 <ParetoChart
-                  data={[...child.children].sort((a, b) => val(b) - val(a)).map(toRow)}
+                  data={[...activeChild.children].sort((a, b) => val(b) - val(a)).map(toRow)}
+                  selected={child2Id}
+                  onSelect={(id) => setChild2Id(id)}
                 />
               ) : (
                 <EmptyState message="Silahkan Pilih Child Issues Level 2" />
@@ -130,8 +243,6 @@ function ParetoPage() {
             </Panel>
           </div>
 
-          {/* §7 point 3: "Rank by Machines" is not shown in the After mockup; kept here
-              as an extra panel so the information is not lost. */}
           <Panel
             title="Rank by Machines"
             subtitle={

@@ -422,3 +422,5 @@ export function EmptyState({ message }: { message: string }) {
 export function NoDataForFilters() {
   return <EmptyState message="Tidak ada data untuk kombinasi filter ini" />;
 }
+
+export { KpiStrip, type KpiItem, type KpiStripProps } from "./kpi-strip";

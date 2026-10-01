@@ -753,3 +753,169 @@ export function shiftPerformance(plantId: string) {
     })),
   };
 }
+
+/* -------------------------------- KPI Strips & Analytics Helpers -------------------------------- */
+
+/** Dynamically map any span filter label/id to comparison label */
+export function getCompareLabel(span: string): string {
+  const s = (span || "").toLowerCase();
+  if (s.includes("week")) return "vs Last week";
+  if (s.includes("day") || s.includes("today") || s.includes("yesterday")) return "vs Yesterday";
+  if (s.includes("month")) return "vs Last month";
+  return "vs Previous period";
+}
+
+export type PriorPeriodKpis = {
+  scheduledTime: number;
+  grossOperatingTime: number;
+  netOperatingTime: number;
+  effectiveTime: number;
+  totalLossMinutes: number;
+  availabilityPct: number;
+  performancePct: number;
+  qualityPct: number;
+  oeePct: number;
+};
+
+/** Deterministic prior period KPIs for Loss Anatomy card strip */
+export function getPriorPeriodKpis(scopeSeed: string): PriorPeriodKpis {
+  const priorSeed = `${scopeSeed}-prior`;
+  const wf = waterfall(priorSeed);
+  const scheduledTime = wf.milestones.find((m) => m.label === "Scheduled Time")?.value ?? 0;
+  const grossOperatingTime =
+    wf.milestones.find((m) => m.label === "Gross Operating Time")?.value ?? 0;
+  const netOperatingTime = wf.milestones.find((m) => m.label === "Net Operating Time")?.value ?? 0;
+  const effectiveTime = wf.milestones.find((m) => m.label === "Effective Time")?.value ?? 0;
+
+  const priorTree = lossTree(priorSeed);
+  const totalLossMinutes = priorTree.reduce((sum, n) => sum + n.minutes, 0);
+
+  const availabilityPct = scheduledTime > 0 ? (grossOperatingTime / scheduledTime) * 100 : 0;
+  const performancePct = grossOperatingTime > 0 ? (netOperatingTime / grossOperatingTime) * 100 : 0;
+  const qualityPct = netOperatingTime > 0 ? (effectiveTime / netOperatingTime) * 100 : 0;
+  const oeePct = scheduledTime > 0 ? (effectiveTime / scheduledTime) * 100 : 0;
+
+  return {
+    scheduledTime,
+    grossOperatingTime,
+    netOperatingTime,
+    effectiveTime,
+    totalLossMinutes,
+    availabilityPct,
+    performancePct,
+    qualityPct,
+    oeePct,
+  };
+}
+
+export type LossCategoryKind = "stop" | "event";
+
+export const CATEGORY_KIND_MAP: Record<string, LossCategoryKind> = {
+  Breakdown: "stop",
+  "Minor Stop": "stop",
+  "Setup + Idle": "stop",
+  "Planned Downtime": "stop",
+  "Speed Loss": "event",
+  Reject: "event",
+  Rework: "event",
+};
+
+export function getLossCategoryKind(categoryName: string, parentName?: string): LossCategoryKind {
+  if (!categoryName || categoryName === "All loss categories") return "event";
+  if (CATEGORY_KIND_MAP[categoryName]) return CATEGORY_KIND_MAP[categoryName];
+  if (parentName && CATEGORY_KIND_MAP[parentName]) return CATEGORY_KIND_MAP[parentName];
+  return "event";
+}
+
+export type LossNodeStats = {
+  minutes: number;
+  events: number;
+  longest: number;
+  kind: LossCategoryKind;
+};
+
+/** Get statistics for a loss node at any level (parent / child L1 / child L2 / root) */
+export function getLossNodeStats(
+  scopeSeed: string,
+  nodeKey?: string,
+  treeNodes?: LossNode[],
+): LossNodeStats {
+  const tree = treeNodes ?? lossTree(scopeSeed);
+
+  // If root / no node selected ("All loss categories")
+  if (!nodeKey || nodeKey === "all") {
+    const totalMinutes = tree.reduce((sum, n) => sum + n.minutes, 0);
+    const totalEvents = tree.reduce((sum, n) => sum + n.occurrences, 0);
+    const maxLongest = tree.reduce((max, n) => {
+      const nodeStats = getLossNodeStats(scopeSeed, n.id, tree);
+      return Math.max(max, nodeStats.longest);
+    }, 0);
+
+    return {
+      minutes: totalMinutes,
+      events: totalEvents,
+      longest: maxLongest || Math.min(totalMinutes, 45),
+      kind: "event",
+    };
+  }
+
+  const targetNode = findNode(tree, nodeKey);
+  if (!targetNode) {
+    // Fallback if node not found
+    return {
+      minutes: 0,
+      events: 0,
+      longest: 0,
+      kind: "event",
+    };
+  }
+
+  // Find parent category to determine stop vs event classification
+  let parentCategoryName = targetNode.label;
+  for (const p of tree) {
+    if (p.id === targetNode.id) {
+      parentCategoryName = p.label;
+      break;
+    }
+    if (
+      p.children?.some(
+        (c) => c.id === targetNode.id || c.children?.some((gc) => gc.id === targetNode.id),
+      )
+    ) {
+      parentCategoryName = p.label;
+      break;
+    }
+  }
+
+  const kind = getLossCategoryKind(targetNode.label, parentCategoryName);
+  const minutes = targetNode.minutes;
+  // Events must satisfy 1 <= events <= minutes when minutes > 0
+  const events = minutes > 0 ? Math.min(targetNode.occurrences, minutes) : 0;
+
+  // Calculate deterministic longest single stop/event duration
+  let longest = 0;
+  if (minutes > 0 && events > 0) {
+    const avgDuration = minutes / events;
+    const rngVal = rand(`${scopeSeed}-${targetNode.id}-longest`, 1.1, 2.5, 2);
+    longest = Math.min(minutes, Math.max(Math.ceil(avgDuration), Math.round(avgDuration * rngVal)));
+  }
+
+  return {
+    minutes,
+    events,
+    longest,
+    kind,
+  };
+}
+
+/** Per-line ideal speed in PPM */
+export function getLinePpm(lineId: string): number {
+  return 24;
+}
+
+export function getScopePpm(lines: Line[]): number {
+  if (!lines.length) return 24;
+  const speeds = lines.map((l) => getLinePpm(l.id));
+  const avgPpm = Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length);
+  return avgPpm || 24;
+}
