@@ -207,10 +207,9 @@ function MachineDetail() {
               />
             </div>
 
-            {/* Under the viewer: Status pill + Stops tile alone (§3.1, §3.2) */}
+            {/* Under the viewer: Interaction hint + Stops tile alone (§3.1, §3.2) */}
             <div className="border-t border-border p-3 space-y-2 text-[11px] bg-muted/20">
-              <div className="flex items-center justify-between px-1">
-                <StatusPill status={machine.status} />
+              <div className="flex items-center justify-end px-1">
                 <span className="text-[10px] text-muted-foreground font-mono">
                   Drag: rotate · Scroll: zoom
                 </span>
@@ -263,8 +262,7 @@ function MachineDetail() {
                 label="Machine OEE"
                 value={machineMetrics.oee.toFixed(1)}
                 unit="%"
-                caption={<Delta value={machineMetrics.deltaOee} />}
-                comparisonLabel={resolved.compareLabel}
+                delta={machineMetrics.deltaOee}
               />
 
               {/* Card 2: Availability */}
@@ -272,8 +270,7 @@ function MachineDetail() {
                 label="Availability"
                 value={machineMetrics.availability.toFixed(1)}
                 unit="%"
-                caption={<Delta value={machineMetrics.deltaAvailability} />}
-                comparisonLabel={resolved.compareLabel}
+                delta={machineMetrics.deltaAvailability}
               />
 
               {/* Card 3: Performance */}
@@ -281,8 +278,7 @@ function MachineDetail() {
                 label="Performance"
                 value={machineMetrics.performance.toFixed(1)}
                 unit="%"
-                caption={<Delta value={machineMetrics.deltaPerformance} />}
-                comparisonLabel={resolved.compareLabel}
+                delta={machineMetrics.deltaPerformance}
               />
 
               {/* Card 4: Quality */}
@@ -290,8 +286,7 @@ function MachineDetail() {
                 label="Quality"
                 value={machineMetrics.quality.toFixed(1)}
                 unit="%"
-                caption={<Delta value={machineMetrics.deltaQuality} />}
-                comparisonLabel={resolved.compareLabel}
+                delta={machineMetrics.deltaQuality}
               />
 
               {/* Card 5: Output (pcs) with sub-line Good X · Rejects Y */}

@@ -321,7 +321,13 @@ export function MapHoverTooltip({ info }: { info: MapTooltipInfo | null }) {
         </div>
         <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
           <span className="text-muted-foreground">PO Output</span>
-          <span className="font-mono font-medium text-foreground">{info.poOutput ?? "- / -"}</span>
+          <span className="font-mono font-medium text-foreground">
+            {info.poOutput
+              ? info.poOutput.startsWith("=")
+                ? info.poOutput
+                : `= ${info.poOutput}`
+              : "= - / -"}
+          </span>
         </div>
         <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
           <span className="text-muted-foreground">Current OEE</span>

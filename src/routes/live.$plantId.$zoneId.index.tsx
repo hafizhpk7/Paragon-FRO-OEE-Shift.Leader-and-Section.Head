@@ -206,29 +206,25 @@ function ZoneContent({
                   ? "warn"
                   : "bad"
             }
-            caption={<Delta value={zoneMetrics.deltaOee} />}
-            comparisonLabel={compareLabel}
+            delta={zoneMetrics.deltaOee}
           />
           <KpiCard
             label="Availability"
             value={zoneMetrics.availability.toFixed(1)}
             unit="%"
-            caption={<Delta value={zoneMetrics.deltaAvailability} />}
-            comparisonLabel={compareLabel}
+            delta={zoneMetrics.deltaAvailability}
           />
           <KpiCard
             label="Performance"
             value={zoneMetrics.performance.toFixed(1)}
             unit="%"
-            caption={<Delta value={zoneMetrics.deltaPerformance} />}
-            comparisonLabel={compareLabel}
+            delta={zoneMetrics.deltaPerformance}
           />
           <KpiCard
             label="Quality"
             value={zoneMetrics.quality.toFixed(1)}
             unit="%"
-            caption={<Delta value={zoneMetrics.deltaQuality} />}
-            comparisonLabel={compareLabel}
+            delta={zoneMetrics.deltaQuality}
           />
           {/* §7 point 5: one name only — "LINES DOWN". */}
           <KpiCard

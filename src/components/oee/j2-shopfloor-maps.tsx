@@ -11,7 +11,13 @@ import {
   type Status,
 } from "@/lib/oee/config";
 import type { Line, Machine, Plant, Zone } from "@/lib/oee/data";
-import { getBottleneck, getActivePO, PO_IDLE_PLACEHOLDER } from "@/lib/oee/metrics-engine";
+import {
+  getBottleneck,
+  getActivePO,
+  getMetrics,
+  PO_IDLE_PLACEHOLDER,
+} from "@/lib/oee/metrics-engine";
+import { usePeriod } from "@/lib/oee/period";
 import {
   CAMERA_FIT_MARGIN_PERCENT,
   DEFAULT_ELEVATION_DEG,
@@ -162,6 +168,7 @@ export function J2PlantZoneMap({
   onSelectZone?: (zoneId: string) => void;
   className?: string;
 }) {
+  const { resolved } = usePeriod();
   const [viewMode, setViewMode] = useState<ViewMode>("3d");
   const [hoveredZoneId, setHoveredZoneId] = useState<string | null>(null);
   const [hoveredLineCode, setHoveredLineCode] = useState<string | null>(null);
@@ -233,20 +240,23 @@ export function J2PlantZoneMap({
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
 
+      const lineM = getMetrics(plant.id, "line", lineCfg.code, resolved);
+      const machineM = getMetrics(plant.id, "machine", machineCode, resolved);
+
       setHoveredMachine({
         lineCode: lineCfg.code,
         machineCode,
         machineName: machine?.name ?? machineCode,
         zoneId: lineCfg.zoneId,
         zoneName: zone?.name ?? `Zone ${lineCfg.zoneId}`,
-        lineOee: line?.oee ?? 65.0,
-        machineOee: machine?.oee ?? line?.oee ?? 65.0,
+        lineOee: lineM.oee,
+        machineOee: machineM.oee,
         machineStatus: machine?.status ?? line?.status ?? "running",
         clientX: e.clientX - rect.left,
         clientY: e.clientY - rect.top,
       });
     },
-    [handleLineEnter],
+    [handleLineEnter, plant.id, resolved],
   );
 
   // Auto-Fit Bounding Box (Completely independent of hover state)
@@ -501,12 +511,12 @@ export function J2PlantZoneMap({
               {/* Zone Title Badges */}
               {(["A", "B", "C"] as const).map((zId) => {
                 const fp = J2_ZONE_FOOTPRINTS[zId];
-                const zone = zonesMap.get(zId);
                 const isZoneHovered = hoveredZoneId === zId;
                 const isDimmed = hoveredZoneId && hoveredZoneId !== zId;
 
                 const labelPos = projectIso(fp.labelPos.x, fp.labelPos.y, 42, PLANT_ISO_SCALE);
-                const zoneOee = zone?.oee ?? 60;
+                const zoneM = getMetrics(plant.id, "zone", zId, resolved);
+                const zoneOee = zoneM.oee;
 
                 return (
                   <g
@@ -557,8 +567,8 @@ export function J2PlantZoneMap({
                   (hoveredZoneId && hoveredZoneId !== lineCfg.zoneId) ||
                   (hoveredLineCode && !isLineHovered);
 
-                const line = linesMap.get(lineCfg.code);
-                const lineOee = line?.oee ?? 65;
+                const lineM = getMetrics(plant.id, "line", lineCfg.code, resolved);
+                const lineOee = lineM.oee;
 
                 let labelX = lineCfg.layout.x - 1.8;
                 const labelY = lineCfg.layout.y + PLANT_BLOCK_SIZE.d / 2;
@@ -677,7 +687,6 @@ export function J2PlantZoneMap({
             {/* 2D Zone Footprints */}
             {(["A", "B", "C"] as const).map((zId) => {
               const fp = J2_ZONE_FOOTPRINTS[zId];
-              const zone = zonesMap.get(zId);
               const isZoneHovered = hoveredZoneId === zId;
               const isDimmed = hoveredZoneId && hoveredZoneId !== zId;
 
@@ -690,7 +699,8 @@ export function J2PlantZoneMap({
               const zy = fp.bounds.minY * scaleY + offsetY;
               const zw = (fp.bounds.maxX - fp.bounds.minX) * scaleX;
               const zh = (fp.bounds.maxY - fp.bounds.minY) * scaleY;
-              const zoneOee = zone?.oee ?? 60;
+              const zoneM = getMetrics(plant.id, "zone", zId, resolved);
+              const zoneOee = zoneM.oee;
 
               return (
                 <g
@@ -916,6 +926,17 @@ export function J2PlantZoneMap({
               </span>
             </div>
             <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
+              <span className="text-muted-foreground">PO Output</span>
+              <span className="font-mono font-medium text-foreground">
+                {(() => {
+                  const po = getActivePO(plant.id, hoveredMachine.lineCode);
+                  return po
+                    ? `= ${po.currentOutput.toLocaleString()} / ${po.totalMPQ.toLocaleString()}`
+                    : "= - / -";
+                })()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
               <span className="text-muted-foreground">OEE</span>
               <span
                 className={cn("font-mono font-bold", TIER_TEXT[tierOf(hoveredMachine.machineOee)])}
@@ -951,6 +972,7 @@ export function J2ZoneProductionFloorMap({
   onSelectLine?: (lineId: string) => void;
   className?: string;
 }) {
+  const { resolved } = usePeriod();
   const [viewMode, setViewMode] = useState<ViewMode>("3d");
   const [hoveredLineCode, setHoveredLineCode] = useState<string | null>(null);
   const [hoveredMachine, setHoveredMachine] = useState<MachineHoverData | null>(null);
@@ -1158,7 +1180,9 @@ export function J2ZoneProductionFloorMap({
                       const machine = line?.machines.find(
                         (m) => m.id === mCfg.code || m.code === mCfg.code,
                       );
-                      const machineOee = machine?.oee ?? line?.oee ?? 65;
+                      const machineM = getMetrics(plantId, "machine", mCfg.code, resolved);
+                      const lineM = getMetrics(plantId, "line", lineCfg.code, resolved);
+                      const machineOee = machineM.oee;
                       const status = machine?.status ?? "running";
 
                       const blockX =
@@ -1194,8 +1218,8 @@ export function J2ZoneProductionFloorMap({
                                   machineName: machine?.name ?? mCfg.code,
                                   zoneId: zone.id,
                                   zoneName: zone.name,
-                                  lineOee: line?.oee ?? 65,
-                                  machineOee,
+                                  lineOee: lineM.oee,
+                                  machineOee: machineM.oee,
                                   machineStatus: status,
                                   clientX: e.clientX - rect.left,
                                   clientY: e.clientY - rect.top,
@@ -1285,8 +1309,8 @@ export function J2ZoneProductionFloorMap({
             {/* 4. Labels Layer (ALWAYS ON TOP — Static Geometry, No Transforms) */}
             <g id="labels-layer">
               {linesForZone.map((lineCfg) => {
-                const line = zone.lines.find((l) => l.id === lineCfg.code);
-                const lineOee = line?.oee ?? 65;
+                const lineM = getMetrics(plantId, "line", lineCfg.code, resolved);
+                const lineOee = lineM.oee;
                 const lineTier = tierOf(lineOee);
                 const isLeft = lineCfg.labelSide === "left";
                 const isLineHovered = hoveredLineCode === lineCfg.code;
@@ -1417,7 +1441,8 @@ export function J2ZoneProductionFloorMap({
               const offsetX = 65;
               const offsetY = 36;
 
-              const lineOee = line?.oee ?? 65;
+              const lineM = getMetrics(plantId, "line", lineCfg.code, resolved);
+              const lineOee = lineM.oee;
               const lineTier = tierOf(lineOee);
 
               const isLeft = lineCfg.labelSide === "left";
@@ -1489,8 +1514,8 @@ export function J2ZoneProductionFloorMap({
                               machineName: machine?.name ?? mCfg.code,
                               zoneId: zone.id,
                               zoneName: zone.name,
-                              lineOee: line?.oee ?? 65,
-                              machineOee: machine?.oee ?? 65,
+                              lineOee: getMetrics(plantId, "line", lineCfg.code, resolved).oee,
+                              machineOee: getMetrics(plantId, "machine", mCfg.code, resolved).oee,
                               machineStatus: status,
                               clientX: e.clientX - rect.left,
                               clientY: e.clientY - rect.top,
@@ -1599,6 +1624,17 @@ export function J2ZoneProductionFloorMap({
               <span className="text-muted-foreground">PO</span>
               <span className="font-mono font-medium text-foreground">
                 {getActivePO(plantId, hoveredMachine.lineCode)?.poNumber ?? PO_IDLE_PLACEHOLDER}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
+              <span className="text-muted-foreground">PO Output</span>
+              <span className="font-mono font-medium text-foreground">
+                {(() => {
+                  const po = getActivePO(plantId, hoveredMachine.lineCode);
+                  return po
+                    ? `= ${po.currentOutput.toLocaleString()} / ${po.totalMPQ.toLocaleString()}`
+                    : "= - / -";
+                })()}
               </span>
             </div>
             <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">

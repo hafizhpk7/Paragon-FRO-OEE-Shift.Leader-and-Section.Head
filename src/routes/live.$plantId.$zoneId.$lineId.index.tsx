@@ -11,16 +11,7 @@ import {
   type MapTooltipInfo,
 } from "@/components/oee/iso";
 import { LineChainView3D } from "@/components/oee/three/line-chain-view-3d";
-import {
-  ComparisonLabel,
-  Delta,
-  EmptyState,
-  KpiCard,
-  PageHeader,
-  Panel,
-  StatusLegend,
-  StatusPill,
-} from "@/components/oee/ui";
+import { Delta, EmptyState, KpiCard, PageHeader, Panel, StatusLegend } from "@/components/oee/ui";
 import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { bucketsFor, getLine, getZone, lineAlarms, trendSeries } from "@/lib/oee/data";
 import { usePeriod } from "@/lib/oee/period";
@@ -148,29 +139,25 @@ function LineDetail() {
                   ? "warn"
                   : "bad"
             }
-            caption={<Delta value={lineMetrics.deltaOee} />}
-            comparisonLabel={compareLabel}
+            delta={lineMetrics.deltaOee}
           />
           <KpiCard
             label="Availability"
             value={lineMetrics.availability.toFixed(1)}
             unit="%"
-            caption={<Delta value={lineMetrics.deltaAvailability} />}
-            comparisonLabel={compareLabel}
+            delta={lineMetrics.deltaAvailability}
           />
           <KpiCard
             label="Performance"
             value={lineMetrics.performance.toFixed(1)}
             unit="%"
-            caption={<Delta value={lineMetrics.deltaPerformance} />}
-            comparisonLabel={compareLabel}
+            delta={lineMetrics.deltaPerformance}
           />
           <KpiCard
             label="Quality"
             value={lineMetrics.quality.toFixed(1)}
             unit="%"
-            caption={<Delta value={lineMetrics.deltaQuality} />}
-            comparisonLabel={compareLabel}
+            delta={lineMetrics.deltaQuality}
           />
           <KpiCard
             label="Output"
@@ -209,9 +196,13 @@ function LineDetail() {
           />
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[1fr_1.5fr]">
-          <Panel title="Line Condition">
-            <dl className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_1.5fr] items-stretch">
+          <Panel
+            title="Line Condition"
+            className="h-full flex flex-col"
+            bodyClassName="flex-1 flex flex-col p-3.5"
+          >
+            <dl className="grid flex-1 grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 text-[11px] h-full">
               {[
                 ["Current SKU", activePO?.skuName ?? line.sku],
                 [
@@ -225,9 +216,16 @@ function LineDetail() {
                 ["Run Rate Machine", `${machineRunRate} ppm`],
                 ["Bottleneck", bottleneckCode],
               ].map(([k, v]) => (
-                <div key={k} className="rounded border border-border px-2.5 py-2 bg-surface/60">
-                  <dt className="text-muted-foreground">{k}</dt>
-                  <dd className="truncate font-medium mt-0.5">{v}</dd>
+                <div
+                  key={k}
+                  className="flex flex-col justify-center rounded-lg border border-border/70 p-3 bg-muted/15 shadow-2xs hover:bg-muted/30 hover:border-border transition-all h-full min-h-[60px]"
+                >
+                  <dt className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    {k}
+                  </dt>
+                  <dd className="whitespace-normal break-words font-semibold text-xs text-foreground mt-1">
+                    {v}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -241,9 +239,6 @@ function LineDetail() {
           >
             <div className="relative min-h-[340px] w-full flex-1 overflow-hidden">
               <LineChainView3D plantId={plantId} zoneId={zoneId} line={line} />
-            </div>
-            <div className="border-t border-border px-4 py-2">
-              <StatusPill status={line.status} />
             </div>
           </Panel>
         </div>
