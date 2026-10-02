@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { DEFAULT_PLANT_ID, DEFAULT_ZONE_ID } from "@/lib/oee/data";
 import { useApp, type Role } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
+import { BUILD_ID } from "@/lib/oee/build-info";
 import { QuickSearchTrigger } from "./quick-search";
 
 const roleLabels: Record<Role, string> = {
@@ -460,7 +461,12 @@ export function AppSidebar() {
           </Dialog>
 
           <div className="pt-2">
-            <CollapsedTooltip collapsed={isCollapsed} label="Expand sidebar">
+            {!isCollapsed && (
+              <div className="px-3 pb-1 text-[10px] font-mono text-muted-foreground/70 truncate">
+                Build {BUILD_ID}
+              </div>
+            )}
+            <CollapsedTooltip collapsed={isCollapsed} label={`Build ${BUILD_ID} · Expand sidebar`}>
               <Button
                 variant="outline"
                 className={cn("h-10 w-full", isCollapsed ? "px-0" : "justify-start px-3")}

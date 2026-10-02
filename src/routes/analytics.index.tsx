@@ -127,26 +127,10 @@ function AnalyticsPage() {
             <KpiCard label="Performance" value={avg("performance").toFixed(1)} unit="%">
               <Sparkline data={spark(-4)} />
             </KpiCard>
-            <KpiCard
-              label="Quality"
-              value={avg("quality").toFixed(1)}
-              unit="%"
-              caption={<Delta value={avg("quality") - 96} />}
-            >
+            <KpiCard label="Quality" value={avg("quality").toFixed(1)} unit="%">
               <Sparkline data={spark(8)} />
             </KpiCard>
-            <KpiCard
-              label="Good output vs plan"
-              value={goodOutput.toLocaleString()}
-              caption={`${attained}% attained · ${Math.max(0, planOutput - goodOutput).toLocaleString()} short`}
-            >
-              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-grid">
-                <div
-                  className="h-full rounded-full bg-primary"
-                  style={{ width: `${Math.min(attained, 100)}%` }}
-                />
-              </div>
-            </KpiCard>
+            <KpiCard label="OUTPUT" value={goodOutput.toLocaleString()} unit="pcs" />
             <KpiCard
               label="Biggest loss this week"
               value={loss.label}

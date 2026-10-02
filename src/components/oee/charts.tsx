@@ -77,17 +77,18 @@ export function Sparkline({ data, dataKey = "v" }: { data: Point[]; dataKey?: st
   );
 }
 
-export function formatKNumber(num: number): string {
-  if (num === 0) return "0";
-  if (Math.abs(num) >= 1_000_000) {
-    const formatted = (num / 1_000_000).toFixed(1);
+export function formatKNumber(num: number | string): string {
+  const n = typeof num === "number" ? num : Number(num);
+  if (isNaN(n) || n === 0) return "0";
+  if (Math.abs(n) >= 1_000_000) {
+    const formatted = (n / 1_000_000).toFixed(1);
     return `${formatted.endsWith(".0") ? formatted.slice(0, -2) : formatted}M`;
   }
-  if (Math.abs(num) >= 1_000) {
-    const formatted = (num / 1_000).toFixed(1);
+  if (Math.abs(n) >= 1_000) {
+    const formatted = (n / 1_000).toFixed(1);
     return `${formatted.endsWith(".0") ? formatted.slice(0, -2) : formatted}K`;
   }
-  return num.toString();
+  return String(Math.round(n));
 }
 
 interface TooltipEntry {
@@ -226,12 +227,16 @@ export function TrendChart({
   }
 
   // Determine YAxis domain & tick formatter
-  const yDomain = domain ?? (selectedMetrics ? [0, 100] : ["auto", "auto"]);
+  const isPcs = unit === "pcs" || keys?.some((k) => k === "Actual" || k === "Plan");
+  const isPpm = unit === "ppm" || keys?.some((k) => k === "Speed");
+  const isPercentage = selectedMetrics !== undefined || (keys?.length === 1 && keys[0] === "OEE");
+
+  const yDomain: AxisDomain = domain ?? (isPercentage ? [0, 100] : ["auto", "auto"]);
   const tickFormatter =
     yTickFormatter ??
-    (unit === "pcs"
-      ? formatKNumber
-      : unit === "ppm"
+    (isPcs
+      ? (v: number) => formatKNumber(v)
+      : isPpm
         ? (v: number) => String(Math.round(v))
         : undefined);
 
@@ -241,15 +246,15 @@ export function TrendChart({
       style={height ? { height } : undefined}
     >
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -12 }}>
+        <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: isPcs ? -4 : -8 }}>
           <CartesianGrid stroke="var(--grid)" vertical={false} />
           <XAxis dataKey="label" tick={AXIS} stroke="var(--grid)" />
           <YAxis
             tick={AXIS}
             stroke="var(--grid)"
-            domain={yDomain as AxisDomain}
+            domain={yDomain}
             tickFormatter={tickFormatter}
-            width={38}
+            width={isPcs ? 44 : 38}
           />
           <Tooltip content={<CustomTrendTooltip unit={unit} />} />
           <Legend
@@ -272,6 +277,7 @@ export function TrendChart({
                 dataKey={m}
                 stroke={strokeColor}
                 strokeWidth={1.8}
+                strokeDasharray={m === "Plan" ? "4 4" : undefined}
                 dot={{ r: 2 }}
                 connectNulls={false}
               />

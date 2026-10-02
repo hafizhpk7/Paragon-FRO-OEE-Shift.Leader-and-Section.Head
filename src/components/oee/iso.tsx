@@ -272,6 +272,8 @@ export function IsoBlock({
 export type MapTooltipInfo = {
   title: string;
   subtitle?: string;
+  po?: string;
+  poOutput?: string;
   status?: Status;
   statusLabel?: string;
   oee: number;
@@ -292,7 +294,7 @@ export function MapHoverTooltip({ info }: { info: MapTooltipInfo | null }) {
       )}
       style={{ left: `${info.x}px`, top: `${info.y}px` }}
     >
-      <div className="flex min-w-[190px] flex-col gap-1.5 rounded-lg border border-border bg-surface/95 p-3 shadow-xl backdrop-blur-md">
+      <div className="flex min-w-[200px] flex-col gap-1.5 rounded-lg border border-border bg-surface/95 p-3 shadow-xl backdrop-blur-md">
         <div className="flex items-center justify-between gap-2.5">
           <span className="font-mono text-xs font-semibold tracking-tight text-foreground">
             {info.title}
@@ -314,6 +316,14 @@ export function MapHoverTooltip({ info }: { info: MapTooltipInfo | null }) {
         </div>
         {info.subtitle && <p className="text-[10px] text-muted-foreground">{info.subtitle}</p>}
         <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
+          <span className="text-muted-foreground">PO</span>
+          <span className="font-mono font-medium text-foreground">{info.po ?? "-"}</span>
+        </div>
+        <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
+          <span className="text-muted-foreground">PO Output</span>
+          <span className="font-mono font-medium text-foreground">{info.poOutput ?? "- / -"}</span>
+        </div>
+        <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
           <span className="text-muted-foreground">Current OEE</span>
           <span className={cn("font-mono font-bold", TIER_TEXT[tier])}>{info.oee.toFixed(1)}%</span>
         </div>
@@ -328,6 +338,41 @@ export function MapHoverTooltip({ info }: { info: MapTooltipInfo | null }) {
         )}
       />
     </div>
+  );
+}
+
+export function IsoBottleneckMarker({
+  x,
+  y,
+  h = 24,
+  s = 26,
+}: {
+  x: number;
+  y: number;
+  h?: number;
+  s?: number;
+}) {
+  const p = iso(x, y, h, s);
+  return (
+    <g transform={`translate(${p.x}, ${p.y - 16})`} pointerEvents="none">
+      {/* Base indigo anchor ring */}
+      <ellipse cx={0} cy={16} rx={7} ry={3.5} fill="none" stroke="#5B3FD1" strokeWidth={1.5} />
+      {/* BN Badge */}
+      <rect
+        x={-11}
+        y={-1}
+        width={22}
+        height={13}
+        rx={3}
+        fill="#5B3FD1"
+        stroke="#FFFFFF"
+        strokeWidth={0.75}
+        className="shadow-sm"
+      />
+      <text x={0} y={8.5} textAnchor="middle" className="fill-white font-mono font-bold text-[8px]">
+        BN
+      </text>
+    </g>
   );
 }
 
@@ -410,6 +455,16 @@ export function MapStatusLegendOverlay({ className }: { className?: string }) {
           <div>
             <span className="font-semibold text-foreground">Gray (Off):</span>{" "}
             <span className="text-muted-foreground">Machine off or no schedule.</span>
+          </div>
+        </div>
+        <div className="flex items-start gap-2 border-t border-border/60 pt-1.5">
+          <span className="mt-0.5 inline-flex items-center justify-center size-3.5 rounded bg-[#5B3FD1] text-white text-[8px] font-mono font-bold shrink-0">
+            BN
+          </span>
+          <div>
+            <span className="font-semibold text-foreground">
+              Bottleneck machine (sets Line OEE)
+            </span>
           </div>
         </div>
       </div>

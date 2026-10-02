@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, Menu } from "lucide-react";
-import { type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 
 import {
   STATUS_DOT,
@@ -10,11 +10,121 @@ import {
   tierOf,
   type Status,
 } from "@/lib/oee/config";
-import { PERIODS, type PeriodId } from "@/lib/oee/filters";
-import { comparisonContext, useLiveClock } from "@/lib/oee/live-display";
+import type { PeriodKey } from "@/lib/oee/period";
+import { usePeriod } from "@/lib/oee/period";
+import { useLiveClock } from "@/lib/oee/live-display";
+import { useLiveTick } from "@/lib/oee/metrics-engine";
 import { useApp } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { PeriodDropdown } from "./period-dropdown";
+import { KpiDelta } from "./kpi-delta";
+
+export const LiveClockChip = memo(function LiveClockChip() {
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  const dayStr = days[now.getDay()];
+  const dateStr = String(now.getDate()).padStart(2, "0");
+  const monthStr = months[now.getMonth()];
+  const yearStr = now.getFullYear();
+
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+
+  const formatted = `W${String(weekNo).padStart(2, "0")} · ${dayStr}, ${dateStr} ${monthStr} ${yearStr} · ${hh}:${mm}:${ss} WIB`;
+
+  return (
+    <span
+      suppressHydrationWarning
+      className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 font-mono text-[10px] sm:text-[11px] text-muted-foreground shadow-xs shrink-0"
+    >
+      <span>{formatted}</span>
+    </span>
+  );
+});
+
+function formatSecondsAgo(s: number): string {
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const remS = s % 60;
+    return `${m}m ${String(remS).padStart(2, "0")}s ago`;
+  }
+  const h = Math.floor(s / 3600);
+  const remM = Math.floor((s % 3600) / 60);
+  return `${h}h ${remM}m ago`;
+}
+
+export const DataUpdatedIndicator = memo(function DataUpdatedIndicator() {
+  const tick = useLiveTick();
+  const [lastTickTime, setLastTickTime] = useState<Date>(() => new Date());
+  const [secondsAgo, setSecondsAgo] = useState(0);
+  const [isFlashing, setIsFlashing] = useState(false);
+
+  useEffect(() => {
+    setLastTickTime(new Date());
+    setSecondsAgo(0);
+    setIsFlashing(true);
+    const flashTimer = setTimeout(() => setIsFlashing(false), 900);
+    return () => clearTimeout(flashTimer);
+  }, [tick]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSecondsAgo((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const hh = String(lastTickTime.getHours()).padStart(2, "0");
+  const mm = String(lastTickTime.getMinutes()).padStart(2, "0");
+  const ss = String(lastTickTime.getSeconds()).padStart(2, "0");
+
+  return (
+    <span
+      title={`Last updated ${hh}:${mm}:${ss} WIB`}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 font-mono text-[10px] sm:text-[11px] text-muted-foreground shadow-xs shrink-0 transition-all duration-300 tabular-nums min-w-[108px]",
+        isFlashing &&
+          "border-emerald-500/80 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold ring-1 ring-emerald-500/30",
+      )}
+    >
+      <span className="relative flex h-2 w-2" title="Live telemetry active">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+      </span>
+      <span>Updated {formatSecondsAgo(secondsAgo)}</span>
+    </span>
+  );
+});
 
 export function Panel({
   title,
@@ -107,7 +217,29 @@ export function Donut({
   );
 }
 
-export function ComparisonLabel({ period, className }: { period: PeriodId; className?: string }) {
+export function ComparisonLabel({
+  period,
+  label,
+  className,
+}: {
+  period?: PeriodKey | string;
+  label?: string;
+  className?: string;
+}) {
+  const { resolved } = usePeriod();
+  const displayLabel =
+    label ??
+    (period
+      ? period === "this-shift"
+        ? "vs last shift"
+        : period === "today"
+          ? "vs yesterday"
+          : period === "this-week"
+            ? "vs last week"
+            : period === "this-month"
+              ? "vs last month"
+              : "vs previous period"
+      : resolved.compareLabel);
   return (
     <span
       className={cn(
@@ -115,7 +247,7 @@ export function ComparisonLabel({ period, className }: { period: PeriodId; class
         className,
       )}
     >
-      {comparisonContext(period)}
+      {displayLabel}
     </span>
   );
 }
@@ -124,28 +256,40 @@ export function Delta({
   value,
   suffix = "%",
   period,
+  label,
   className,
 }: {
   value: number;
   suffix?: string;
-  period?: PeriodId;
+  period?: PeriodKey | string;
+  label?: string;
   className?: string;
 }) {
   const up = value >= 0;
   return (
-    <div className={cn("inline-flex flex-col items-start gap-0.5", className)}>
+    <div
+      data-kpi-delta
+      className={cn(
+        "inline-flex items-center gap-1.5 text-[11px] font-medium select-none truncate max-w-full",
+        className,
+      )}
+    >
       <span
         className={cn(
-          "inline-flex items-center gap-0.5 font-mono text-[11px] font-medium",
+          "inline-flex items-center gap-0.5 font-mono",
           up ? "text-tier-good" : "text-tier-bad",
         )}
       >
-        {up ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
+        {up ? (
+          <ArrowUp className="size-3 stroke-[2.5]" />
+        ) : (
+          <ArrowDown className="size-3 stroke-[2.5]" />
+        )}
         {up ? "+" : "-"}
         {Math.abs(value).toFixed(1)}
         {suffix}
       </span>
-      {period && <ComparisonLabel period={period} />}
+      <ComparisonLabel period={period} label={label} className="truncate" />
     </div>
   );
 }
@@ -247,10 +391,15 @@ export function KpiCard({
         {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>
       <div className="mt-0.5 flex flex-col gap-0.5">
-        {delta !== undefined && <Delta value={delta} />}
-        {caption && <div className="text-[11px] text-muted-foreground">{caption}</div>}
-        {comparisonLabel ? (
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight">
+        {delta !== undefined ? (
+          <Delta value={delta} label={comparisonLabel} period={period} />
+        ) : caption ? (
+          <div className="text-[11px] text-muted-foreground">{caption}</div>
+        ) : comparisonLabel ? (
+          <div
+            data-kpi-delta
+            className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight"
+          >
             {trend === "up" && (
               <ArrowUp className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0 stroke-[2.5]" />
             )}
@@ -259,8 +408,6 @@ export function KpiCard({
             )}
             <span>{comparisonLabel}</span>
           </div>
-        ) : period && delta !== undefined ? (
-          <ComparisonLabel period={period} />
         ) : null}
       </div>
       {children}
@@ -336,32 +483,6 @@ export function StatusLegend() {
 
 export type Crumb = { label: string; to?: string; params?: Record<string, string> };
 
-export function PeriodDropdown({
-  value,
-  onChange,
-}: {
-  value: PeriodId;
-  onChange: (p: PeriodId) => void;
-}) {
-  return (
-    <label className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs">
-      <span className="text-muted-foreground">Period</span>
-      <select
-        aria-label="Period"
-        value={value}
-        onChange={(e) => onChange(e.target.value as PeriodId)}
-        className="bg-transparent font-medium outline-none"
-      >
-        {PERIODS.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 export function PageHeader({
   title,
   crumbs,
@@ -373,15 +494,14 @@ export function PageHeader({
 }: {
   title: string;
   crumbs: Crumb[];
-  period?: PeriodId;
-  onPeriod?: (p: PeriodId) => void;
-  meta?: string;
+  period?: PeriodKey | string;
+  onPeriod?: (p: PeriodKey) => void;
+  meta?: ReactNode;
   back?: { label: string; to: string; params?: Record<string, string> };
   children?: ReactNode;
 }) {
   const { toggleMobileSidebar } = useApp();
-  const liveTime = useLiveClock(period ?? "today");
-  const displayMeta = period === "live" ? (liveTime ?? meta ?? "Live Monitor") : meta;
+  const { resolved } = usePeriod();
 
   return (
     <header className="sticky top-0 z-20 w-full min-w-0 border-b border-border bg-background/90 px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur">
@@ -431,22 +551,18 @@ export function PageHeader({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {displayMeta && (
+          <LiveClockChip />
+          <DataUpdatedIndicator />
+          {meta && (
             <span
               suppressHydrationWarning
               className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 font-mono text-[10px] sm:text-[11px] text-muted-foreground shadow-xs shrink-0"
             >
-              {period === "live" && (
-                <span className="relative flex h-2 w-2" title="Live clock active">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
-                </span>
-              )}
-              <span suppressHydrationWarning>{displayMeta}</span>
+              <span>{meta}</span>
             </span>
           )}
           {children}
-          {period && onPeriod && <PeriodDropdown value={period} onChange={onPeriod} />}
+          <PeriodDropdown />
         </div>
       </div>
     </header>
@@ -466,3 +582,5 @@ export function NoDataForFilters() {
 }
 
 export { KpiStrip, type KpiItem, type KpiStripProps } from "./kpi-strip";
+export { KpiDelta, type KpiDeltaProps } from "./kpi-delta";
+export { PeriodDropdown } from "./period-dropdown";

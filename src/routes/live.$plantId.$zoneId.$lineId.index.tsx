@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { TrendChart } from "@/components/oee/charts";
 import {
@@ -11,7 +11,6 @@ import {
   type MapTooltipInfo,
 } from "@/components/oee/iso";
 import { LineChainView3D } from "@/components/oee/three/line-chain-view-3d";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ComparisonLabel,
   Delta,
@@ -24,8 +23,18 @@ import {
 } from "@/components/oee/ui";
 import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { bucketsFor, getLine, getZone, lineAlarms, trendSeries } from "@/lib/oee/data";
-import type { PeriodId } from "@/lib/oee/filters";
-import { comparisonContext, useLiveLineState } from "@/lib/oee/live-display";
+import { usePeriod } from "@/lib/oee/period";
+import {
+  getMetrics,
+  getBottleneck,
+  getActivePO,
+  getMachineMaxRunRate,
+  getSkuStandardRunRate,
+  getActualRunRate,
+  SHOW_COMPARISON_ON_OUTPUT_CARD,
+  PO_IDLE_PLACEHOLDER,
+  useLiveTick,
+} from "@/lib/oee/metrics-engine";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/live/$plantId/$zoneId/$lineId/")({
@@ -49,14 +58,18 @@ export const Route = createFileRoute("/live/$plantId/$zoneId/$lineId/")({
 
 function LineDetail() {
   const { plantId, zoneId, lineId } = useParams({ from: "/live/$plantId/$zoneId/$lineId/" });
-  const [period, setPeriod] = useState<PeriodId>("live");
+  const { resolved } = usePeriod();
+  const tick = useLiveTick();
   const [tooltip, setTooltip] = useState<MapTooltipInfo | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const zone = getZone(plantId, zoneId);
   const line = getLine(plantId, zoneId, lineId);
-  const liveState = useLiveLineState(period, plantId, zoneId, lineId);
-  const liveLine = liveState.line;
+
+  const lineMetrics = useMemo(() => {
+    void tick;
+    return getMetrics(plantId, "line", lineId, resolved);
+  }, [plantId, lineId, resolved, tick]);
 
   if (!zone || !line) {
     return (
@@ -66,26 +79,50 @@ function LineDetail() {
     );
   }
 
-  const buckets = bucketsFor(60, 1);
-  const oeeTrend = trendSeries(`${line.id}-oee`, buckets, ["OEE"], liveLine.oee, 7);
+  const bottleneckCode = getBottleneck(plantId, line.id);
+  const activePO = getActivePO(plantId, line.id);
+  const actualRunRate = getActualRunRate(plantId, line.id, resolved);
+  const skuRunRate = getSkuStandardRunRate(plantId, line.id, activePO?.skuName ?? line.sku);
+  const machineRunRate = getMachineMaxRunRate(plantId, bottleneckCode);
+
+  // Time series granularity based on period
+  const isShiftOrToday = resolved.periodKey === "this-shift" || resolved.periodKey === "today";
+  const granularity = isShiftOrToday ? "hourly" : "daily";
+  const numBuckets = granularity === "hourly" ? 8 : 7;
+  const buckets = Array.from({ length: numBuckets }, (_, i) =>
+    granularity === "hourly" ? `${(6 + i * 2) % 24}:00` : `Day ${i + 1}`,
+  );
+
+  const oeeTrend = trendSeries(
+    `${line.id}-oee-${resolved.periodKey}`,
+    buckets,
+    ["OEE"],
+    lineMetrics.oee,
+    5,
+  );
   const outputTrend = buckets.map((label, i) => {
     const progress = (i + 1) / buckets.length;
     const plan = Math.round(line.outputTarget * progress);
-    const actual = Math.round(liveLine.outputActual * progress);
+    const actual = Math.round(line.outputActual * progress);
     return {
       label,
       Actual: actual,
       Plan: plan,
     };
   });
-  const speedTrend = trendSeries(`${line.id}-spd`, buckets, ["Speed"], liveLine.speed, 14);
+  const speedTrend = trendSeries(
+    `${line.id}-spd-${resolved.periodKey}`,
+    buckets,
+    ["Speed"],
+    actualRunRate,
+    10,
+  );
   const alarms = lineAlarms(line);
 
-  // "Behind pace" = actual vs a simple linear projection of the shift target (§7 point 13).
-  const elapsedRatio = liveLine.runningMinutes / 480;
-  const paceTarget = Math.round(line.outputTarget * elapsedRatio);
-  const behind = liveLine.outputActual < paceTarget;
-  const compareLabel = comparisonContext(period);
+  const compareLabel = resolved.compareLabel;
+  const poOutputStr = activePO
+    ? `${activePO.currentOutput.toLocaleString()} / ${activePO.totalMPQ.toLocaleString()}`
+    : "- / -";
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
@@ -96,92 +133,101 @@ function LineDetail() {
           { label: zone.name, to: "/live/$plantId/$zoneId", params: { plantId, zoneId } },
           { label: `${line.id} · Shift 1` },
         ]}
-        period={period}
-        onPeriod={setPeriod}
         back={{ label: zone.name, to: "/live/$plantId/$zoneId", params: { plantId, zoneId } }}
       />
       <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 pb-12 min-w-0 max-w-full overflow-x-hidden">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
           <KpiCard
             label="Line OEE"
-            value={liveLine.oee.toFixed(1)}
+            value={lineMetrics.oee.toFixed(1)}
             unit="%"
-            caption={<Delta value={liveState.deltas.oee} />}
+            tone={
+              tierOf(lineMetrics.oee) === "good"
+                ? "good"
+                : tierOf(lineMetrics.oee) === "warn"
+                  ? "warn"
+                  : "bad"
+            }
+            caption={<Delta value={lineMetrics.deltaOee} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Availability"
-            value={liveLine.availability.toFixed(1)}
+            value={lineMetrics.availability.toFixed(1)}
             unit="%"
-            caption={<Delta value={liveState.deltas.availability} />}
+            caption={<Delta value={lineMetrics.deltaAvailability} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Performance"
-            value={liveLine.performance.toFixed(1)}
+            value={lineMetrics.performance.toFixed(1)}
             unit="%"
-            caption={<Delta value={liveState.deltas.performance} />}
+            caption={<Delta value={lineMetrics.deltaPerformance} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Quality"
-            value={liveLine.quality.toFixed(1)}
+            value={lineMetrics.quality.toFixed(1)}
             unit="%"
-            caption={<Delta value={liveState.deltas.quality} />}
+            caption={<Delta value={lineMetrics.deltaQuality} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Output"
-            value={liveLine.outputActual.toLocaleString()}
+            value={(lineMetrics.outputActual ?? 0).toLocaleString()}
             unit="pcs"
-            isUpdating={liveState.isUpdating}
             caption={
-              behind ? (
-                <span className="text-tier-bad">
-                  behind pace · plan {paceTarget.toLocaleString()}
-                </span>
-              ) : (
-                <span className="text-tier-good">on pace · plan {paceTarget.toLocaleString()}</span>
-              )
+              <span className="text-[10px] text-muted-foreground font-mono">
+                Good:{" "}
+                {(
+                  lineMetrics.outputGood ??
+                  Math.round((lineMetrics.outputActual ?? 0) * (lineMetrics.quality / 100))
+                ).toLocaleString()}{" "}
+                {"·"} Reject:{" "}
+                {(
+                  lineMetrics.outputReject ??
+                  Math.max(
+                    0,
+                    (lineMetrics.outputActual ?? 0) -
+                      Math.round((lineMetrics.outputActual ?? 0) * (lineMetrics.quality / 100)),
+                  )
+                ).toLocaleString()}
+              </span>
             }
           />
           <KpiCard
             label="Running time"
-            value={`${Math.floor(liveLine.runningMinutes / 60)}h ${Math.floor(liveLine.runningMinutes % 60)}m`}
+            value={`${Math.floor(line.runningMinutes / 60)}h ${Math.floor(line.runningMinutes % 60)}m`}
           />
           <KpiCard
             label="Status"
-            value={liveLine.status.toUpperCase()}
-            tone={liveLine.status === "down" ? "bad" : liveLine.status === "slow" ? "warn" : "good"}
+            value={line.status.toUpperCase()}
+            tone={line.status === "down" ? "bad" : line.status === "slow" ? "warn" : "good"}
             caption={
-              liveLine.status === "down"
-                ? `caused by ${line.machines[0]?.id}`
-                : "all machines nominal"
+              line.status === "down" ? `caused by ${bottleneckCode}` : "all machines nominal"
             }
           />
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[1fr_1.5fr]">
           <Panel title="Line Condition">
-            <dl className="grid grid-cols-2 gap-2 text-[11px]">
+            <dl className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
               {[
-                ["Current SKU", line.sku],
-                ["PO / Batch", `${line.po} · ${line.batch}`],
+                ["Current SKU", activePO?.skuName ?? line.sku],
                 [
-                  "Shift output",
-                  `${liveLine.outputActual.toLocaleString()} / ${line.outputTarget.toLocaleString()}`,
+                  "PO / Batch",
+                  `${activePO?.poNumber ?? line.po} · ${activePO?.batchNumber ?? line.batch}`,
                 ],
-                ["MPQ target", `${line.mpqTarget} ppm`],
+                ["PO Output", poOutputStr],
                 ["Zone · Shift", `${zone.name} · Shift 1`],
-                ["Bottleneck", line.bottleneck],
+                ["Actual Run Rate", `${actualRunRate} ppm`],
+                ["Run Rate SKU", `${skuRunRate} ppm`],
+                ["Run Rate Machine", `${machineRunRate} ppm`],
+                ["Bottleneck", bottleneckCode],
               ].map(([k, v]) => (
-                <div key={k} className="rounded border border-border px-2 py-1.5">
+                <div key={k} className="rounded border border-border px-2.5 py-2 bg-surface/60">
                   <dt className="text-muted-foreground">{k}</dt>
-                  <dd className="truncate font-medium">{v}</dd>
+                  <dd className="truncate font-medium mt-0.5">{v}</dd>
                 </div>
               ))}
             </dl>
@@ -274,7 +320,7 @@ function LineDetail() {
           </Panel>
           <Panel
             title="Line speed"
-            subtitle={`Standard ${line.stdSpeed} ppm`}
+            subtitle={`Standard ${skuRunRate} ppm`}
             className="h-[340px] w-full min-w-0"
             bodyClassName="h-[270px] w-full p-2"
           >
@@ -282,7 +328,7 @@ function LineDetail() {
               <TrendChart
                 data={speedTrend}
                 keys={["Speed"]}
-                reference={line.stdSpeed}
+                reference={skuRunRate}
                 domain={["auto", "auto"]}
                 unit="ppm"
                 height={250}
@@ -290,57 +336,6 @@ function LineDetail() {
             </div>
           </Panel>
         </div>
-
-        {/* Machines Section */}
-        <Card className="h-auto w-full min-w-0 shrink-0 overflow-visible rounded-lg border border-border bg-surface shadow-xs">
-          <CardHeader className="border-b border-border px-4 py-3">
-            <CardTitle className="text-sm font-semibold tracking-tight text-foreground">
-              Machines
-            </CardTitle>
-            <CardDescription className="text-[11px] text-muted-foreground">
-              Open a machine page for sensor detail and current stop
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="h-auto overflow-visible p-4 pb-6">
-            <div className="grid h-auto w-full min-w-0 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {line.machines.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() =>
-                    navigate({
-                      to: "/live/$plantId/$zoneId/$lineId/$machineId",
-                      params: { plantId, zoneId, lineId, machineId: m.id },
-                    })
-                  }
-                  className="group flex h-auto min-h-[116px] w-full min-w-0 flex-col justify-between gap-2.5 rounded-lg border border-border bg-muted/50 p-4 text-left transition-colors hover:border-primary hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-muted/30 dark:hover:bg-muted/60"
-                >
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <span className="truncate font-mono text-sm font-semibold">{m.id}</span>
-                    <span className="shrink-0">
-                      <StatusPill status={m.status} />
-                    </span>
-                  </div>
-                  <p className="truncate text-[11px] text-muted-foreground">{m.type}</p>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs leading-relaxed text-foreground/90">
-                    <span>OEE {m.oee.toFixed(1)}%</span>
-                    <span className="text-muted-foreground/60" aria-hidden="true">
-                      ·
-                    </span>
-                    <span>MTTR {m.mttr}m</span>
-                    <span className="text-muted-foreground/60" aria-hidden="true">
-                      ·
-                    </span>
-                    <span>MTBF {m.mtbf}m</span>
-                  </div>
-                  <span className="pt-1 text-[11px] font-medium text-primary group-hover:underline">
-                    Open machine page →
-                  </span>
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       </main>
     </div>
   );

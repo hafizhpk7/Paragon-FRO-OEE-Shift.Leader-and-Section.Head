@@ -527,11 +527,15 @@ export function LossClarification({
       causeMachineCode,
     );
 
-    const totalDur = workingCauses.reduce((sum, c) => sum + c.durationSec, 0);
-    setSaveFlash(`Saved · ${formatEventDuration(totalDur)} classified`);
+    const primaryCause = workingCauses[0];
+    const pathStr = primaryCause
+      ? `${primaryCause.l1Parent} › ${primaryCause.l2CategoryName || primaryCause.l2CategoryId} › ${primaryCause.l3ReasonName || primaryCause.l3ReasonId}`
+      : "Classified";
+
+    setSaveFlash(`Saved · ${pathStr}`);
     setTimeout(() => {
       setSaveFlash(null);
-    }, 2600);
+    }, 3200);
 
     onSaveSuccess?.();
 
@@ -544,6 +548,9 @@ export function LossClarification({
 
     if (nextUnclassified) {
       onSelectEventId(nextUnclassified.id);
+    } else {
+      // If none left in unclassified, keep selection clear or keep currently classified
+      onSelectEventId(null);
     }
   };
 

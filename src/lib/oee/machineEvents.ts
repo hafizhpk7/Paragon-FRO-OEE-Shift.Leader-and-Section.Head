@@ -9,10 +9,12 @@
  * - Loss classification persistence
  */
 
+import { useSyncExternalStore } from "react";
 import { J2_LINES_CONFIG } from "./j2-layout-config";
 import { autoParent, componentOf, type LossComponent, type LossParent } from "./lossTree";
 import { makeRng } from "./rng";
 import { formatTimeWib, getShiftInfo, SHIFT_SECONDS, type ShiftInfo } from "./shiftClock";
+import type { PeriodKey } from "./period";
 
 export type EventType = "run" | "speed_loss" | "minor_stop" | "downtime" | "planned";
 
@@ -125,6 +127,24 @@ export const DOWNTIME_THRESHOLD_SEC = 600; // 10 minutes
 
 // In-memory fallback for saved classifications if localStorage fails
 const memoryClassificationStore = new Map<string, LossCause[]>();
+let classificationVersion = 0;
+const classificationListeners = new Set<() => void>();
+
+export function useClassificationVersion(): number {
+  return useSyncExternalStore(
+    (cb) => {
+      classificationListeners.add(cb);
+      return () => classificationListeners.delete(cb);
+    },
+    () => classificationVersion,
+    () => 0,
+  );
+}
+
+export function notifyClassificationChanged() {
+  classificationVersion++;
+  classificationListeners.forEach((l) => l());
+}
 
 export function getSavedClassifications(
   shiftKey: string,
@@ -164,6 +184,7 @@ export function saveEventClassification(
     // fallback to memory
   }
   memoryClassificationStore.set(`${shiftKey}:${machineCode}:${eventId}`, causes);
+  notifyClassificationChanged();
 }
 
 /**
@@ -239,23 +260,71 @@ export function getMachineProfile(machineCode: string): MachineProfile {
 }
 
 /**
- * Generates the unified shift timeline, deterministic per (shiftKey + machineCode)
+ * Sample pre-classification library for seeding 25% of items
+ */
+const SAMPLE_PRECLASSIFIED_REASONS = [
+  {
+    l0: "Availability" as LossComponent,
+    l1: "Breakdown" as LossParent,
+    catId: "BKD-MCH",
+    catName: "Mechanical Failure",
+    reasonId: "R-MCH-04",
+    reasonName: "Pneumatic cylinder seal leak",
+  },
+  {
+    l0: "Performance" as LossComponent,
+    l1: "Minor Stop" as LossParent,
+    catId: "MNR-JAM",
+    catName: "Intermittent Jam",
+    reasonId: "R-JAM-01",
+    reasonName: "Bottle fallen / tilted on infeed",
+  },
+  {
+    l0: "Availability" as LossComponent,
+    l1: "Breakdown" as LossParent,
+    catId: "BKD-ELE",
+    catName: "Electrical Failure",
+    reasonId: "R-ELE-02",
+    reasonName: "Optical sensor misalignment / dirt",
+  },
+  {
+    l0: "Performance" as LossComponent,
+    l1: "Speed Loss" as LossParent,
+    catId: "SPD-RAW",
+    catName: "Material Flow Variability",
+    reasonId: "R-SPD-01",
+    reasonName: "Viscosity fluctuation requiring speed derate",
+  },
+  {
+    l0: "Loading" as LossComponent,
+    l1: "Planned Downtime" as LossParent,
+    catId: "PLN-CLN",
+    catName: "Sanitization & Cleaning",
+    reasonId: "R-CLN-01",
+    reasonName: "Line rinse & nozzle flush",
+  },
+];
+
+/**
+ * Generates the unified timeline and events, deterministic per (shiftKey + machineCode + period)
  */
 export function getShiftTimeline(
   machineCode: string,
   shift: ShiftInfo = getShiftInfo(),
   liveNowSec?: number,
+  plantId: string = "J2",
+  periodKey: PeriodKey = "this-shift",
 ): ShiftTimelineResult {
   const profile = getMachineProfile(machineCode);
-  const isLtf13 = machineCode === "LTF13";
   const shiftKey = shift.shiftKey;
-  const rng = makeRng(shiftKey + machineCode);
+  const seed = `${plantId}:${shiftKey}:${machineCode}:${periodKey}`;
+  const rng = makeRng(seed);
 
-  // Time reveal boundary: if live, reveals up to current elapsed seconds; otherwise full shift (28800)
+  // Time reveal boundary
   const revealSec =
     liveNowSec !== undefined ? Math.min(SHIFT_SECONDS, Math.max(0, liveNowSec)) : shift.elapsedSec;
 
-  // 1. Orders definition
+  // Orders definition
   const orders: ProductionOrder[] = [
     {
       id: "PO-2811",
@@ -268,211 +337,134 @@ export function getShiftTimeline(
     {
       id: "PO-2810",
       sku: profile.sku.replace("2811", "2810"),
-      productName: isLtf13
-        ? "Wardah C-Defense Energizing Whip Foam 100ML"
-        : "Wardah Nature Daily Aloe Toner 150ML",
+      productName: "Wardah Nature Daily Aloe Toner 150ML",
       planQty: Math.round(profile.planUnits * 0.35),
       startSec: 18000,
       endSec: 28800,
     },
   ];
 
-  // Saved user classifications
+  // Saved user classifications from persistent store
   const savedClassifications = getSavedClassifications(shiftKey, machineCode);
 
-  // 2. Build deterministic events
+  // Determine target event count based on period guideline
+  let targetEventCount = 8;
+  if (periodKey === "today") targetEventCount = 18;
+  else if (periodKey === "this-week") targetEventCount = 30;
+  else if (periodKey === "this-month") targetEventCount = 50;
+  else if (periodKey === "custom-range") targetEventCount = 25;
+
   const rawEvents: MachineEvent[] = [];
 
-  if (isLtf13) {
-    // --- DEMO SCENARIO FOR LTF13 (Bad Day with Ongoing Downtime Stop) ---
-    // Planned briefing
-    rawEvents.push({
-      id: "EV-01",
-      machineCode,
-      startSec: 0,
-      endSec: 900,
-      durationSec: 900,
-      type: "planned",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      source: "Operator",
-      causes: [
-        {
-          id: "C-01",
-          durationSec: 900,
-          l0Component: "Loading",
-          l1Parent: "Planned Downtime",
-          l2CategoryId: "PLN-BRK",
-          l2CategoryName: "Break & Rest Time",
-          l3ReasonId: "R-BRK-02",
-          l3ReasonName: "Shift handover & briefing",
-        },
-      ],
-    });
+  // 1. First event: Planned briefing
+  const firstEvId = `${plantId}-${machineCode}-EV-01`;
+  rawEvents.push({
+    id: firstEvId,
+    machineCode,
+    startSec: 0,
+    endSec: 900,
+    durationSec: 900,
+    type: "planned",
+    orderId: "PO-2811",
+    sku: orders[0].sku,
+    productName: orders[0].productName,
+    source: "Operator",
+    causes: [
+      {
+        id: `C-${firstEvId}-0`,
+        durationSec: 900,
+        l0Component: "Loading",
+        l1Parent: "Planned Downtime",
+        l2CategoryId: "PLN-BRK",
+        l2CategoryName: "Break & Rest Time",
+        l3ReasonId: "R-BRK-02",
+        l3ReasonName: "Shift handover & briefing",
+      },
+    ],
+  });
 
-    // Stop 2: Minor stop 30s
-    rawEvents.push({
-      id: "EV-02",
-      machineCode,
-      startSec: 1500,
-      endSec: 1530,
-      durationSec: 30,
-      type: "minor_stop",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      causes: [],
-    });
+  // 2. Generate remaining events spread across timeline
+  const intervalSpacing = Math.floor((SHIFT_SECONDS - 1800) / targetEventCount);
 
-    // Stop 3: Minor stop 60s
-    rawEvents.push({
-      id: "EV-03",
-      machineCode,
-      startSec: 2800,
-      endSec: 2860,
-      durationSec: 60,
-      type: "minor_stop",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      source: "PLC",
-      causes: [
-        {
-          id: "C-03",
-          durationSec: 60,
-          l0Component: "Performance",
-          l1Parent: "Minor Stop",
-          l2CategoryId: "MNR-JAM",
-          l2CategoryName: "Intermittent Jam",
-          l3ReasonId: "R-JAM-01",
-          l3ReasonName: "Bottle fallen / tilted on infeed",
-        },
-      ],
-    });
+  for (let i = 1; i < targetEventCount; i++) {
+    const evId = `${plantId}-${machineCode}-EV-${String(i + 1).padStart(2, "0")}`;
+    const startSec = 1000 + i * intervalSpacing + Math.floor(rng() * 120);
+    if (startSec >= SHIFT_SECONDS - 60) break;
 
-    // Stop 4: Speed loss running slow (78% speed)
-    rawEvents.push({
-      id: "EV-04",
-      machineCode,
-      startSec: 3600,
-      endSec: 4800,
-      durationSec: 1200,
-      type: "speed_loss",
-      speedPct: 78,
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      causes: [],
-    });
+    const rType = rng();
+    let type: EventType = "minor_stop";
+    let durationSec = 30 + Math.floor(rng() * 90); // 30s-2m
+    let speedPct: number | undefined;
+    let plcAlarm: string | undefined;
 
-    // Stop 5: Downtime 12m (pre-classified)
-    rawEvents.push({
-      id: "EV-05",
-      machineCode,
-      startSec: 5400,
-      endSec: 6120,
-      durationSec: 720,
-      type: "downtime",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      plcAlarm: "Pneumatic cylinder seal leak",
-      source: "Operator",
-      causes: [
-        {
-          id: "C-05",
-          durationSec: 720,
-          l0Component: "Availability",
-          l1Parent: "Breakdown",
-          l2CategoryId: "BKD-MCH",
-          l2CategoryName: "Mechanical Failure",
-          l3ReasonId: "R-MCH-04",
-          l3ReasonName: "Pneumatic cylinder seal leak",
-        },
-      ],
-    });
+    if (rType < 0.2) {
+      type = "downtime";
+      durationSec = 660 + Math.floor(rng() * 900); // 11-25 mins
+      plcAlarm = "Pneumatic cylinder seal leak";
+    } else if (rType < 0.4) {
+      type = "speed_loss";
+      durationSec = 900 + Math.floor(rng() * 900); // 15-30 mins
+      speedPct = 75 + Math.floor(rng() * 15);
+    } else if (rType < 0.85) {
+      type = "minor_stop";
+      durationSec = 30 + Math.floor(rng() * 150); // 30-180s
+      plcAlarm = rng() > 0.5 ? "Infeed conveyor blockage" : undefined;
+    } else {
+      type = "planned";
+      durationSec = 600 + Math.floor(rng() * 600);
+    }
 
-    // Stop 6: Minor stop 30s
-    rawEvents.push({
-      id: "EV-06",
-      machineCode,
-      startSec: 7200,
-      endSec: 7230,
-      durationSec: 30,
-      type: "minor_stop",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      causes: [],
-    });
+    const endSec = Math.min(SHIFT_SECONDS, startSec + durationSec);
+    const order = startSec >= 18000 ? orders[1] : orders[0];
 
-    // Stop 7: Minor stop 60s
-    rawEvents.push({
-      id: "EV-07",
-      machineCode,
-      startSec: 8400,
-      endSec: 8460,
-      durationSec: 60,
-      type: "minor_stop",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      causes: [],
-    });
+    // Pre-classify roughly 25% of events (every 4th item)
+    const isPreClassified = i % 4 === 0;
+    const sampleReason = SAMPLE_PRECLASSIFIED_REASONS[i % SAMPLE_PRECLASSIFIED_REASONS.length];
 
-    // Stop 8: Minor stop 30s
-    rawEvents.push({
-      id: "EV-08",
-      machineCode,
-      startSec: 9600,
-      endSec: 9630,
-      durationSec: 30,
-      type: "minor_stop",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      causes: [],
-    });
+    const causes: LossCause[] = isPreClassified
+      ? [
+          {
+            id: `C-${evId}-0`,
+            durationSec,
+            l0Component: sampleReason.l0,
+            l1Parent: sampleReason.l1,
+            l2CategoryId: sampleReason.catId,
+            l2CategoryName: sampleReason.catName,
+            l3ReasonId: sampleReason.reasonId,
+            l3ReasonName: sampleReason.reasonName,
+            causeMachineCode: machineCode,
+          },
+        ]
+      : [];
 
-    // Stop 9: Minor stop 30s
     rawEvents.push({
-      id: "EV-09",
+      id: evId,
       machineCode,
-      startSec: 10800,
-      endSec: 10830,
-      durationSec: 30,
-      type: "minor_stop",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      causes: [],
+      startSec,
+      endSec,
+      durationSec,
+      type,
+      speedPct,
+      plcAlarm,
+      orderId: order.id,
+      sku: order.sku,
+      productName: order.productName,
+      source: isPreClassified ? "PLC" : undefined,
+      causes,
     });
+  }
 
-    // Stop 10: Minor stop 30s
+  // Ongoing stop if currently near active time in live mode
+  if (revealSec < SHIFT_SECONDS && revealSec > 3600) {
+    const ongoingStart = Math.max(1200, revealSec - 600);
+    const ongoingId = `${plantId}-${machineCode}-EV-ONGOING`;
     rawEvents.push({
-      id: "EV-10",
-      machineCode,
-      startSec: 11400,
-      endSec: 11430,
-      durationSec: 30,
-      type: "minor_stop",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      causes: [],
-    });
-
-    // Stop 11: Ongoing stop that began 20 minutes before revealSec (e.g. at revealSec - 1200)
-    // Always ongoing in LIVE mode
-    const ongoingStart = Math.max(1200, revealSec - 1200);
-    rawEvents.push({
-      id: "EV-11-ONGOING",
+      id: ongoingId,
       machineCode,
       startSec: ongoingStart,
       endSec: revealSec,
       durationSec: Math.max(30, revealSec - ongoingStart),
-      type: revealSec - ongoingStart >= DOWNTIME_THRESHOLD_SEC ? "downtime" : "minor_stop",
+      type: "minor_stop",
       orderId: ongoingStart >= 18000 ? "PO-2810" : "PO-2811",
       sku: ongoingStart >= 18000 ? orders[1].sku : orders[0].sku,
       productName: ongoingStart >= 18000 ? orders[1].productName : orders[0].productName,
@@ -480,65 +472,14 @@ export function getShiftTimeline(
       isOngoing: true,
       causes: [],
     });
-  } else {
-    // Standard machine timeline: 1 planned briefing + 3-5 normal intermittent stops
-    rawEvents.push({
-      id: "EV-01",
-      machineCode,
-      startSec: 0,
-      endSec: 900,
-      durationSec: 900,
-      type: "planned",
-      orderId: "PO-2811",
-      sku: orders[0].sku,
-      productName: orders[0].productName,
-      source: "Operator",
-      causes: [
-        {
-          id: "C-01",
-          durationSec: 900,
-          l0Component: "Loading",
-          l1Parent: "Planned Downtime",
-          l2CategoryId: "PLN-BRK",
-          l2CategoryName: "Break & Rest Time",
-          l3ReasonId: "R-BRK-02",
-          l3ReasonName: "Shift handover & briefing",
-        },
-      ],
-    });
-
-    const stopCount = 3 + Math.floor(rng() * 4);
-    let curTime = 1800;
-    for (let i = 0; i < stopCount && curTime < SHIFT_SECONDS - 1800; i++) {
-      curTime += 1800 + Math.floor(rng() * 2400);
-      if (curTime > revealSec && !shift.isCurrent) break;
-      const dur = rng() > 0.75 ? 720 : 60 + Math.floor(rng() * 120);
-      const isDown = dur >= DOWNTIME_THRESHOLD_SEC;
-      const order = curTime >= 18000 ? orders[1] : orders[0];
-      const evId = `EV-${String(i + 2).padStart(2, "0")}`;
-
-      rawEvents.push({
-        id: evId,
-        machineCode,
-        startSec: curTime,
-        endSec: Math.min(SHIFT_SECONDS, curTime + dur),
-        durationSec: dur,
-        type: isDown ? "downtime" : "minor_stop",
-        orderId: order.id,
-        sku: order.sku,
-        productName: order.productName,
-        causes: [],
-      });
-      curTime += dur;
-    }
   }
 
-  // 3. Apply saved classifications from localStorage
+  // 3. Apply saved classifications from persistent store
   const activeEvents = rawEvents
-    .filter((e) => e.startSec < revealSec)
+    .filter((e) => e.startSec < revealSec || periodKey !== "this-shift")
     .map((e) => {
       const isOngoing = Boolean(e.isOngoing && revealSec < SHIFT_SECONDS);
-      const effEnd = isOngoing ? revealSec : Math.min(revealSec, e.endSec);
+      const effEnd = isOngoing ? revealSec : e.endSec;
       const effDur = Math.max(30, effEnd - e.startSec);
       let effType = e.type;
       if (effType === "minor_stop" && effDur >= DOWNTIME_THRESHOLD_SEC) {
@@ -559,29 +500,12 @@ export function getShiftTimeline(
         };
       }
 
-      // If pre-tagged with single cause
-      let causes = e.causes;
-      if (causes.length === 1) {
-        // Automatically adjust single cause duration to match event duration
-        causes = [
-          {
-            ...causes[0],
-            durationSec: effDur,
-            l1Parent:
-              effType === "downtime" && causes[0].l1Parent === "Minor Stop"
-                ? "Breakdown"
-                : causes[0].l1Parent,
-          },
-        ];
-      }
-
       return {
         ...e,
         endSec: effEnd,
         durationSec: effDur,
         type: effType,
         isOngoing,
-        causes,
       };
     });
 
@@ -612,7 +536,6 @@ export function getShiftTimeline(
     let needsReason = false;
 
     if (isFuture) {
-      // Future window: placeholder
       windows.push({
         index: wIdx,
         startSec: wStart,
@@ -670,7 +593,6 @@ export function getShiftTimeline(
   }
 
   // 5. Calculate Standard OEE Metrics (Shift-to-date)
-  // SPT (Scheduled Production Time) = revealSec - plannedSec
   const sptSec = Math.max(0, revealSec - plannedSec);
   const gotSec = Math.max(0, sptSec - downSec);
   const netSec = Math.max(0, gotSec - minorSec - speedLossSec);
@@ -691,7 +613,6 @@ export function getShiftTimeline(
     oee = Math.min(100, Math.max(0, (availability * performance * quality) / 10000));
   }
 
-  // Stops count & MTTR / MTBF
   const stopEvents = activeEvents.filter((e) => e.type === "downtime" || e.type === "minor_stop");
   const stopsThisShift = stopEvents.length;
   const totalStopSec = downSec + minorSec;
@@ -700,94 +621,75 @@ export function getShiftTimeline(
   const mtbfMin =
     stopsThisShift > 0 ? Math.round((sptSec - totalStopSec) / stopsThisShift / 60) : null;
 
-  // Unclassified losses count and duration
   const unclassifiedEvents = activeEvents.filter((e) => {
-    if (e.type === "planned") return false;
-    const classified = e.causes.reduce((sum, c) => sum + c.durationSec, 0);
-    return classified < e.durationSec;
+    if (e.type === "run" || e.type === "planned") return false;
+    const classifiedSec = e.causes.reduce((sum, c) => sum + c.durationSec, 0);
+    return classifiedSec < e.durationSec;
   });
+
   const unclassifiedCount = unclassifiedEvents.length;
   const unclassifiedSec = unclassifiedEvents.reduce((sum, e) => {
-    const classified = e.causes.reduce((csum, c) => csum + c.durationSec, 0);
-    return sum + (e.durationSec - classified);
+    const classified = e.causes.reduce((cSum, c) => cSum + c.durationSec, 0);
+    return sum + Math.max(0, e.durationSec - classified);
   }, 0);
 
-  // Status computation (Single object for card, twin badge, banner, events header)
-  const currentEvent = activeEvents.find(
-    (e) => revealSec >= e.startSec && revealSec <= e.endSec && e.startSec < revealSec,
-  );
-  let statusState: "running" | "slow" | "down" | "idle" | "off" = "running";
-  let statusTone: "good" | "warn" | "bad" | "info" | "off" = "good";
-  let statusLabel = "RUNNING";
-  let statusDetail = "Effective production";
-  let sinceSec = revealSec;
-
-  if (revealSec >= SHIFT_SECONDS) {
-    statusState = "off";
-    statusTone = "off";
-    statusLabel = "SHIFT ENDED";
-    statusDetail = "Shift completed";
-  } else if (currentEvent) {
-    sinceSec = revealSec - currentEvent.startSec;
-    if (currentEvent.type === "downtime") {
-      statusState = "down";
-      statusTone = "bad";
-      statusLabel = "DOWN";
-      statusDetail = currentEvent.plcAlarm || "Unscheduled breakdown stop";
-    } else if (currentEvent.type === "minor_stop") {
-      statusState = "down";
-      statusTone = "warn";
-      statusLabel = "MINOR STOP";
-      statusDetail = currentEvent.plcAlarm || "Short intermittent stoppage";
-    } else if (currentEvent.type === "speed_loss") {
-      statusState = "slow";
-      statusTone = "warn";
-      statusLabel = "RUNNING SLOW";
-      statusDetail = `Operating at ${currentEvent.speedPct ?? 78}% of standard rate`;
-    } else if (currentEvent.type === "planned") {
-      statusState = "idle";
-      statusTone = "info";
-      statusLabel = "PLANNED STOP";
-      statusDetail = currentEvent.causes[0]?.l3ReasonName || "Scheduled rest / briefing";
-    }
-  }
-
-  // Active stop banner data (only populated if not normal running)
+  // Active stop banner state
+  const ongoingEvent = activeEvents.find((e) => e.isOngoing);
   let activeStop: ShiftSnapshot["activeStop"] = undefined;
-  if (currentEvent && currentEvent.type !== "run" && revealSec < SHIFT_SECONDS) {
-    const isClassified = currentEvent.causes.length > 0;
-    const firstCause = currentEvent.causes[0];
-    const lossBreadcrumb = firstCause
-      ? `${firstCause.l0Component} > ${firstCause.l1Parent} > ${firstCause.l2CategoryName} > ${firstCause.l3ReasonName}`
+
+  if (ongoingEvent) {
+    const isClassified =
+      ongoingEvent.causes.length > 0 &&
+      ongoingEvent.causes.reduce((sum, c) => sum + c.durationSec, 0) >= ongoingEvent.durationSec;
+
+    const lossBreadcrumb = isClassified
+      ? `${ongoingEvent.causes[0].l1Parent} › ${ongoingEvent.causes[0].l2CategoryName} › ${ongoingEvent.causes[0].l3ReasonName}`
       : undefined;
 
-    // Downstream siblings on same line
-    const siblings = getLineSiblingMachines(machineCode)
-      .filter((m) => m.code !== machineCode)
-      .slice(0, 3)
-      .map((m) => m.code);
-
     activeStop = {
-      event: currentEvent,
-      severity:
-        currentEvent.type === "downtime"
-          ? "CRITICAL"
-          : currentEvent.type === "planned"
-            ? "INFO"
-            : "WARNING",
-      fault:
-        currentEvent.plcAlarm || currentEvent.causes[0]?.l3ReasonName || "Stop awaiting reason",
-      startedAtTime: formatTimeWib(shift.startSec + currentEvent.startSec, false),
-      elapsedSec: revealSec - currentEvent.startSec,
-      downstreamMachines: siblings,
+      event: ongoingEvent,
+      severity: ongoingEvent.durationSec >= DOWNTIME_THRESHOLD_SEC ? "CRITICAL" : "WARNING",
+      fault: ongoingEvent.plcAlarm || "Unclassified Stop",
+      startedAtTime: formatTimeWib(ongoingEvent.startSec),
+      elapsedSec: ongoingEvent.durationSec,
+      downstreamMachines: ["LBC01", "LCF01", "LSW01"],
       isClassified,
       lossBreadcrumb,
     };
   }
 
+  // Machine status
+  let statusState: ShiftSnapshot["status"]["state"] = "running";
+  let statusTone: ShiftSnapshot["status"]["tone"] = "good";
+  let statusLabel = "RUNNING";
+  let statusDetail = "Production Nominal";
+  let sinceSec = Math.max(0, revealSec - 3600);
+
+  if (ongoingEvent) {
+    if (ongoingEvent.type === "downtime") {
+      statusState = "down";
+      statusTone = "bad";
+      statusLabel = "DOWN";
+      statusDetail = ongoingEvent.plcAlarm || "Downtime Breakdown";
+      sinceSec = ongoingEvent.startSec;
+    } else if (ongoingEvent.type === "minor_stop") {
+      statusState = "down";
+      statusTone = "bad";
+      statusLabel = "STOPPED";
+      statusDetail = ongoingEvent.plcAlarm || "Minor Stop";
+      sinceSec = ongoingEvent.startSec;
+    } else if (ongoingEvent.type === "speed_loss") {
+      statusState = "slow";
+      statusTone = "warn";
+      statusLabel = "SLOW";
+      statusDetail = `Speed derated (${ongoingEvent.speedPct || 78}%)`;
+      sinceSec = ongoingEvent.startSec;
+    }
+  }
+
   const snapshot: ShiftSnapshot = {
     machineCode,
-    shiftKey: shift.shiftKey,
+    shiftKey,
     shiftLabel: shift.label,
     idealRatePpm: profile.idealRatePpm,
     planUnits: profile.planUnits,
@@ -799,7 +701,7 @@ export function getShiftTimeline(
     goodOutput: roundedGood,
     rejects: roundedRejects,
     rejectRatePct: profile.rejectRatePct,
-    outputVsPlanPct: Math.round((roundedProduced / (profile.planUnits || 1)) * 100),
+    outputVsPlanPct: profile.planUnits > 0 ? (roundedProduced / profile.planUnits) * 100 : 0,
     totalLossSec: Math.round(downSec + minorSec + speedLossSec),
     totalLossMin: Math.round((downSec + minorSec + speedLossSec) / 60),
     stopsThisShift,

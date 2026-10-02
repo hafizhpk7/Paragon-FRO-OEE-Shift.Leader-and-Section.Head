@@ -11,6 +11,7 @@ import {
   type Status,
 } from "@/lib/oee/config";
 import type { Line, Machine, Plant, Zone } from "@/lib/oee/data";
+import { getBottleneck, getActivePO, PO_IDLE_PLACEHOLDER } from "@/lib/oee/metrics-engine";
 import {
   CAMERA_FIT_MARGIN_PERCENT,
   DEFAULT_ELEVATION_DEG,
@@ -603,6 +604,58 @@ export function J2PlantZoneMap({
                   </g>
                 );
               })}
+
+              {/* Bottleneck Machine BN Badges (Plant View 3D) */}
+              {J2_LINES_CONFIG.map((lineCfg) => {
+                const bnCode = getBottleneck(plant.id, lineCfg.code);
+                const bnIdx = lineCfg.machines.findIndex((m) => m.code === bnCode);
+                const mIdx = bnIdx >= 0 ? bnIdx : 0;
+                const mCfg = lineCfg.machines[mIdx];
+                if (!mCfg) return null;
+
+                const bx = lineCfg.layout.x + (mCfg.offsetX ?? mIdx * PLANT_MACHINE_GAP);
+                let by = lineCfg.layout.y + (mCfg.offsetY ?? 0);
+                if (mCfg.subRow === "top") by -= 0.7;
+
+                const p = projectIso(
+                  bx + PLANT_BLOCK_SIZE.w / 2,
+                  by + PLANT_BLOCK_SIZE.d / 2,
+                  PLANT_BLOCK_SIZE.h + 16,
+                  PLANT_ISO_SCALE,
+                );
+
+                const isDimmed =
+                  (hoveredZoneId && hoveredZoneId !== lineCfg.zoneId) ||
+                  (hoveredLineCode && hoveredLineCode !== lineCfg.code);
+
+                return (
+                  <g
+                    key={`plant-bn-badge-${lineCfg.code}`}
+                    transform={`translate(${p.x}, ${p.y})`}
+                    pointerEvents="none"
+                    opacity={isDimmed ? 0.35 : 1}
+                  >
+                    <rect
+                      x={-9}
+                      y={-6}
+                      width={18}
+                      height={12}
+                      rx={3}
+                      fill="#5B3FD1"
+                      stroke="#FFFFFF"
+                      strokeWidth={0.75}
+                    />
+                    <text
+                      x={0}
+                      y={2.5}
+                      textAnchor="middle"
+                      className="fill-white font-mono font-bold text-[7.5px]"
+                    >
+                      BN
+                    </text>
+                  </g>
+                );
+              })}
             </g>
           </svg>
         ) : (
@@ -754,6 +807,7 @@ export function J2PlantZoneMap({
                     const isHovered =
                       hoveredMachine?.lineCode === lineCfg.code &&
                       hoveredMachine?.machineCode === mCfg.code;
+                    const isBottleneck = getBottleneck(plant.id, lineCfg.code) === mCfg.code;
 
                     return (
                       <g
@@ -766,6 +820,18 @@ export function J2PlantZoneMap({
                         }}
                         onMouseLeave={handleLineLeave}
                       >
+                        {isBottleneck && (
+                          <rect
+                            x={blockX - 13}
+                            y={blockY - 9}
+                            width={26}
+                            height={18}
+                            rx={4}
+                            fill="none"
+                            stroke="#5B3FD1"
+                            strokeWidth={1.5}
+                          />
+                        )}
                         <rect
                           x={blockX - 11}
                           y={blockY - 7}
@@ -773,9 +839,27 @@ export function J2PlantZoneMap({
                           height={14}
                           rx={3}
                           fill={STATUS_HEX[status]}
-                          stroke={isHovered ? "white" : "rgba(0,0,0,0.3)"}
+                          stroke={
+                            isHovered ? "white" : isBottleneck ? "#5B3FD1" : "rgba(0,0,0,0.3)"
+                          }
                           strokeWidth={isHovered ? 1.5 : 0.75}
                         />
+                        {isBottleneck && (
+                          <g
+                            transform={`translate(${blockX}, ${blockY - 14})`}
+                            pointerEvents="none"
+                          >
+                            <rect x={-8} y={-4} width={16} height={9} rx={2} fill="#5B3FD1" />
+                            <text
+                              x={0}
+                              y={3}
+                              textAnchor="middle"
+                              className="fill-white font-mono font-bold text-[6.5px]"
+                            >
+                              BN
+                            </text>
+                          </g>
+                        )}
                       </g>
                     );
                   })}
@@ -825,7 +909,13 @@ export function J2PlantZoneMap({
                   "Production Machine"}
               </span>
             </p>
-            <div className="flex items-center justify-between pt-0.5 text-[11px]">
+            <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
+              <span className="text-muted-foreground">PO</span>
+              <span className="font-mono font-medium text-foreground">
+                {getActivePO(plant.id, hoveredMachine.lineCode)?.poNumber ?? PO_IDLE_PLACEHOLDER}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
               <span className="text-muted-foreground">OEE</span>
               <span
                 className={cn("font-mono font-bold", TIER_TEXT[tierOf(hoveredMachine.machineOee)])}
@@ -1261,6 +1351,7 @@ export function J2ZoneProductionFloorMap({
                       const isHovered =
                         hoveredMachine?.lineCode === lineCfg.code &&
                         hoveredMachine?.machineCode === mCfg.code;
+                      const isBottleneck = getBottleneck(plantId, lineCfg.code) === mCfg.code;
 
                       return (
                         <g
@@ -1277,8 +1368,14 @@ export function J2ZoneProductionFloorMap({
                             rx={8}
                             fill="var(--surface)"
                             fillOpacity={0.96}
-                            stroke={isHovered ? "var(--primary)" : "var(--border)"}
-                            strokeWidth={isHovered ? 1.5 : 0.85}
+                            stroke={
+                              isHovered
+                                ? "var(--primary)"
+                                : isBottleneck
+                                  ? "#5B3FD1"
+                                  : "var(--border)"
+                            }
+                            strokeWidth={isHovered ? 1.5 : isBottleneck ? 1.4 : 0.85}
                             className="drop-shadow-xs"
                           />
                           <text
@@ -1289,6 +1386,19 @@ export function J2ZoneProductionFloorMap({
                           >
                             {mCfg.code}
                           </text>
+                          {isBottleneck && (
+                            <g transform="translate(0, -13)">
+                              <rect x={-8} y={-4} width={16} height={9} rx={2} fill="#5B3FD1" />
+                              <text
+                                x={0}
+                                y={3}
+                                textAnchor="middle"
+                                className="fill-white font-mono font-bold text-[6.5px]"
+                              >
+                                BN
+                              </text>
+                            </g>
+                          )}
                         </g>
                       );
                     })}
@@ -1363,6 +1473,7 @@ export function J2ZoneProductionFloorMap({
                     const isHovered =
                       hoveredMachine?.lineCode === lineCfg.code &&
                       hoveredMachine?.machineCode === mCfg.code;
+                    const isBottleneck = getBottleneck(plantId, lineCfg.code) === mCfg.code;
 
                     return (
                       <g
@@ -1388,6 +1499,18 @@ export function J2ZoneProductionFloorMap({
                         }}
                         onMouseLeave={handleLineLeave}
                       >
+                        {isBottleneck && (
+                          <rect
+                            x={blockX - 22}
+                            y={blockY - 13}
+                            width={44}
+                            height={26}
+                            rx={5}
+                            fill="none"
+                            stroke="#5B3FD1"
+                            strokeWidth={1.5}
+                          />
+                        )}
                         <rect
                           x={blockX - 20}
                           y={blockY - 11}
@@ -1395,7 +1518,9 @@ export function J2ZoneProductionFloorMap({
                           height={22}
                           rx={4}
                           fill={STATUS_HEX[status]}
-                          stroke={isHovered ? "white" : "rgba(0,0,0,0.3)"}
+                          stroke={
+                            isHovered ? "white" : isBottleneck ? "#5B3FD1" : "rgba(0,0,0,0.3)"
+                          }
                           strokeWidth={isHovered ? 2 : 1}
                         />
                         <text
@@ -1406,6 +1531,22 @@ export function J2ZoneProductionFloorMap({
                         >
                           {mCfg.code}
                         </text>
+                        {isBottleneck && (
+                          <g
+                            transform={`translate(${blockX}, ${blockY - 17})`}
+                            pointerEvents="none"
+                          >
+                            <rect x={-9} y={-5} width={18} height={10} rx={2} fill="#5B3FD1" />
+                            <text
+                              x={0}
+                              y={3}
+                              textAnchor="middle"
+                              className="fill-white font-mono font-bold text-[7px]"
+                            >
+                              BN
+                            </text>
+                          </g>
+                        )}
                       </g>
                     );
                   })}
@@ -1454,7 +1595,13 @@ export function J2ZoneProductionFloorMap({
                   "Production Machine"}
               </span>
             </p>
-            <div className="flex items-center justify-between pt-0.5 text-[11px]">
+            <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
+              <span className="text-muted-foreground">PO</span>
+              <span className="font-mono font-medium text-foreground">
+                {getActivePO(plantId, hoveredMachine.lineCode)?.poNumber ?? PO_IDLE_PLACEHOLDER}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-t border-border/70 pt-1 text-[11px]">
               <span className="text-muted-foreground">Machine OEE</span>
               <span
                 className={cn("font-mono font-bold", TIER_TEXT[tierOf(hoveredMachine.machineOee)])}

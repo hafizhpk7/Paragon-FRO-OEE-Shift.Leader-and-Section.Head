@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { AppSidebar } from "@/components/oee/app-sidebar";
 import { AppProvider, useApp } from "@/lib/oee/app-context";
+import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
@@ -172,6 +173,7 @@ function DashboardShell() {
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
       </div>
+      <Toaster position="top-right" richColors />
     </div>
   );
 }

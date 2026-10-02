@@ -11,6 +11,7 @@ import {
 
 import { DEFAULT_PLANT_ID } from "./data";
 import { snapResolution, type ResolutionId, type SpanId, type PeriodId } from "./filters";
+import { PeriodProvider } from "./period";
 
 export type Role = "shift-leader" | "section-head";
 
@@ -138,7 +139,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setFilters,
     ],
   );
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      <PeriodProvider>{children}</PeriodProvider>
+    </AppContext.Provider>
+  );
 }
 
 export function useApp(): Ctx {

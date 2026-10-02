@@ -15,8 +15,8 @@ import satelliteMapImg from "@/assets/images/jatake_satellite_map.jpg";
 import { ComparisonLabel, Delta, Donut, MetricBar, PageHeader, Panel } from "@/components/oee/ui";
 import { TIER_BG, TIER_BORDER, TIER_HEX, TIER_TEXT, tierOf } from "@/lib/oee/config";
 import { PLANTS, type Plant } from "@/lib/oee/data";
-import type { PeriodId } from "@/lib/oee/filters";
-import { useLiveGroupState } from "@/lib/oee/live-display";
+import { usePeriod } from "@/lib/oee/period";
+import { getMetrics, useLiveTick } from "@/lib/oee/metrics-engine";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/live/")({
@@ -219,13 +219,28 @@ function PlantDetailCard({ data }: { data: PlantHoverData | null }) {
 }
 
 export function MultiPlantView() {
-  const [period, setPeriod] = useState<PeriodId>("live");
+  const { resolved } = usePeriod();
+  const tick = useLiveTick();
   const [hoveredPlantId, setHoveredPlantId] = useState<string | null>(null);
   const [plantTooltip, setPlantTooltip] = useState<PlantHoverData | null>(null);
   const [viewMode, setViewMode] = useState<"3d" | "2d">("2d");
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const liveState = useLiveGroupState(period);
+
+  // Metrics from central metrics engine
+  const groupMetrics = useMemo(() => {
+    void tick;
+    return getMetrics("all", "group", "group", resolved);
+  }, [resolved, tick]);
+
+  const plantMetrics = useMemo(() => {
+    void tick;
+    const map: Record<string, ReturnType<typeof getMetrics>> = {};
+    for (const p of PLANTS) {
+      map[p.id] = getMetrics(p.id, "plant", p.id, resolved);
+    }
+    return map;
+  }, [resolved, tick]);
 
   const plantStats = useMemo(() => {
     const map: Record<string, ReturnType<typeof getPlantLineStats>> = {};
@@ -260,7 +275,7 @@ export function MultiPlantView() {
     targetY = Math.max(12, Math.min(targetY, rect.height - cardHeight - 12));
 
     const stats = plantStats[plant.id] ?? getPlantLineStats(plant);
-    const livePlant = liveState.plants[plant.id] ?? plant;
+    const livePlant = plantMetrics[plant.id] ?? plant;
     const config = SATELLITE_PLANT_CONFIG[plant.id];
 
     setPlantTooltip({
@@ -291,36 +306,27 @@ export function MultiPlantView() {
       <PageHeader
         title="Multi Plant View"
         crumbs={[{ label: "Kemas", to: "/live" }, { label: "Multi Plant" }]}
-        period={period}
-        onPeriod={setPeriod}
-        meta="Week 32 · 05-Aug 14:22"
       />
       <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
         {/* Top Summary & Plant Cards */}
-        <div
-          className={cn(
-            "flex flex-col lg:flex-row items-stretch lg:items-center gap-4 rounded-lg border border-border bg-surface p-3 sm:p-4 transition-colors",
-            liveState.isUpdating && "border-primary/50 shadow-[0_0_12px_rgba(59,130,246,0.15)]",
-          )}
-        >
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 rounded-lg border border-border bg-surface p-3 sm:p-4 transition-colors">
           <div className="flex flex-wrap sm:flex-nowrap items-center justify-center sm:justify-start gap-4 pb-3 lg:pb-0 lg:pr-4 border-b lg:border-b-0 lg:border-r border-border/60">
             <div className="flex flex-col items-center shrink-0">
-              <Donut value={liveState.group.oee} size={92} label="Group OEE" />
+              <Donut value={groupMetrics.oee} size={92} label="Group OEE" />
               <div className="mt-1 flex flex-col items-center text-center">
-                <Delta value={liveState.groupDeltas.oee} />
-                <ComparisonLabel period={period} />
+                <Delta value={groupMetrics.deltaOee} label={resolved.compareLabel} />
               </div>
             </div>
             <div className="grid w-full sm:w-44 gap-1.5 min-w-36">
-              <MetricBar label="Availability" value={liveState.group.availability} />
-              <MetricBar label="Performance" value={liveState.group.performance} />
-              <MetricBar label="Quality" value={liveState.group.quality} />
+              <MetricBar label="Availability" value={groupMetrics.availability} />
+              <MetricBar label="Performance" value={groupMetrics.performance} />
+              <MetricBar label="Quality" value={groupMetrics.quality} />
             </div>
           </div>
           <div className="grid w-full flex-1 gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
             {PLANTS.map((p) => {
-              const livePlant = liveState.plants[p.id] ?? p;
-              const deltaVal = liveState.plantDeltas[p.id] ?? 0;
+              const livePlant = plantMetrics[p.id] ?? p;
+              const deltaVal = livePlant.deltaOee;
               const isHovered = hoveredPlantId === p.id;
               const config = SATELLITE_PLANT_CONFIG[p.id];
               return (
@@ -333,14 +339,12 @@ export function MultiPlantView() {
                   className={cn(
                     "flex items-center gap-3 rounded-lg border border-border p-2.5 text-left transition-all hover:border-primary cursor-pointer",
                     isHovered && "border-primary ring-1 ring-primary/40 bg-surface/90 shadow-sm",
-                    liveState.isUpdating && "border-primary/40 bg-primary/5",
                   )}
                 >
                   <div className="flex flex-col items-center">
                     <Donut value={livePlant.oee} size={58} label={p.id} />
                     <div className="mt-1 flex flex-col items-center text-center">
-                      <Delta value={deltaVal} />
-                      <ComparisonLabel period={period} />
+                      <Delta value={deltaVal} label={resolved.compareLabel} />
                     </div>
                   </div>
                   <div className="min-w-0 flex-1 space-y-1">
@@ -423,7 +427,7 @@ export function MultiPlantView() {
                   {PLANTS.map((plant) => {
                     const config = SATELLITE_PLANT_CONFIG[plant.id];
                     if (!config) return null;
-                    const livePlant = liveState.plants[plant.id] ?? plant;
+                    const livePlant = plantMetrics[plant.id] ?? plant;
                     const tier = tierOf(livePlant.oee);
                     const isHovered = hoveredPlantId === plant.id;
                     const stats = plantStats[plant.id] ?? getPlantLineStats(plant);

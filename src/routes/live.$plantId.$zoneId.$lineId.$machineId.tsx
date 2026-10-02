@@ -24,9 +24,11 @@ import { ActiveStopBanner } from "@/components/oee/loss/ActiveStopBanner";
 import { LossStack } from "@/components/oee/loss/LossStack";
 import { OperationalParametersTable } from "@/components/oee/loss/OperationalParametersTable";
 import { getLine, getMachine } from "@/lib/oee/data";
-import { PERIODS, type PeriodId } from "@/lib/oee/filters";
+import { usePeriod } from "@/lib/oee/period";
+import { getMetrics, useLiveTick } from "@/lib/oee/metrics-engine";
 import {
   getShiftTimeline,
+  useClassificationVersion,
   type ShiftSnapshot,
   type ShiftTimelineResult,
 } from "@/lib/oee/machineEvents";
@@ -67,50 +69,38 @@ function MachineDetail() {
   });
   const navigate = useNavigate();
 
-  const [period, setPeriod] = useState<PeriodId>("live");
-  const [tick, setTick] = useState<number>(0);
+  const { resolved, setPeriodKey } = usePeriod();
+  const tick = useLiveTick();
+  const classVer = useClassificationVersion();
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [forcedFocus, setForcedFocus] = useState<"loss" | "events" | null>(null);
 
   const line = getLine(plantId, zoneId, lineId);
   const machine = getMachine(plantId, zoneId, lineId, machineId);
 
-  // 2s live data tick while period === "live"
-  useEffect(() => {
-    if (period !== "live") return;
-    const interval = setInterval(() => {
-      setTick((t) => t + 1);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [period]);
+  const machineMetrics = useMemo(() => {
+    void tick;
+    return getMetrics(plantId, "machine", machineId, resolved);
+  }, [plantId, machineId, resolved, tick]);
 
   // Determine active shift configuration based on period
   const shiftInfo = useMemo(() => {
-    // Reference tick to update shift elapsed time live
     void tick;
-    if (period === "last-shift") {
-      return getPreviousShiftInfo(new Date());
-    }
     return getShiftInfo(new Date());
-  }, [period, tick]);
-
-  // Is multi-shift period (today, yesterday, this-week, last-week)
-  const isMultiShift =
-    period === "today" ||
-    period === "yesterday" ||
-    period === "this-week" ||
-    period === "last-week";
+  }, [tick]);
 
   // Unified Shift Timeline (Single Source of Truth)
   const timeline: ShiftTimelineResult = useMemo(() => {
-    // Reference tick for live 2s refresh
     void tick;
+    void classVer;
     return getShiftTimeline(
       machineId,
       shiftInfo,
-      period === "live" ? shiftInfo.elapsedSec : undefined,
+      shiftInfo.elapsedSec,
+      plantId,
+      resolved.periodKey,
     );
-  }, [machineId, shiftInfo, period, tick]);
+  }, [machineId, shiftInfo, tick, classVer, plantId, resolved.periodKey]);
 
   const { snapshot, orders, events, windows, idealRatePpm } = timeline;
 
@@ -135,7 +125,7 @@ function MachineDetail() {
   if (!line || !machine) {
     return (
       <div className="p-6">
-        <EmptyState message="Machine not found in Jatake 2 plant directory" />
+        <EmptyState message="Machine not found in plant directory" />
       </div>
     );
   }
@@ -168,8 +158,6 @@ function MachineDetail() {
           },
           { label: machine.id },
         ]}
-        period={period}
-        onPeriod={setPeriod}
         meta={
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-surface border border-border px-2.5 py-0.5 text-xs font-mono font-semibold text-foreground shadow-2xs">
@@ -217,67 +205,49 @@ function MachineDetail() {
                 status={machine.status}
                 className="h-full w-full"
               />
-
-              {/* Status Badge overlay bottom-left (§3.3) */}
-              <div className="absolute bottom-3 left-3 z-20 pointer-events-none">
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider shadow-md backdrop-blur-md border",
-                    statusTone === "bad" &&
-                      "bg-destructive text-destructive-foreground border-destructive",
-                    statusTone === "warn" &&
-                      "bg-amber-500 text-black dark:bg-amber-400 font-extrabold border-amber-500",
-                    statusTone === "good" && "bg-tier-good text-white border-tier-good",
-                    statusTone === "info" && "bg-muted text-muted-foreground border-border",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "size-2 rounded-full",
-                      statusTone === "good"
-                        ? "bg-white"
-                        : statusTone === "bad"
-                          ? "bg-destructive-foreground animate-pulse"
-                          : "bg-black",
-                    )}
-                  />
-                  <span>{statusLabel}</span>
-                </span>
-              </div>
             </div>
 
-            {/* Under the viewer: MTTR, MTBF, Stops this shift tiles (§3.3, §5) */}
-            <div className="grid grid-cols-3 gap-2 border-t border-border p-3 text-[11px] bg-muted/20">
-              <div
-                className="rounded border border-border bg-surface px-2.5 py-1.5"
-                title="Mean Time To Repair = Total stop duration / Number of stops"
-              >
-                <p className="text-muted-foreground text-[10px] uppercase font-semibold">MTTR</p>
-                <p className="font-mono font-bold text-xs text-foreground mt-0.5">
-                  {snapshot.mttrMin !== null ? `${snapshot.mttrMin} min` : "—"}
-                </p>
+            {/* Under the viewer: Status pill + Stops tile alone (§3.1, §3.2) */}
+            <div className="border-t border-border p-3 space-y-2 text-[11px] bg-muted/20">
+              <div className="flex items-center justify-between px-1">
+                <StatusPill status={machine.status} />
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  Drag: rotate · Scroll: zoom
+                </span>
               </div>
-
               <div
-                className="rounded border border-border bg-surface px-2.5 py-1.5"
-                title="Mean Time Between Failures = (Scheduled production time - Total stop duration) / Number of stops"
+                className="rounded border border-border bg-surface px-3 py-2 flex items-center justify-between"
+                title={`Count of downtime and minor stop events occurred during ${
+                  resolved.periodKey === "this-shift"
+                    ? "this shift"
+                    : resolved.periodKey === "today"
+                      ? "today"
+                      : resolved.periodKey === "this-week"
+                        ? "this week"
+                        : resolved.periodKey === "this-month"
+                          ? "this month"
+                          : "custom range"
+                }`}
               >
-                <p className="text-muted-foreground text-[10px] uppercase font-semibold">MTBF</p>
-                <p className="font-mono font-bold text-xs text-foreground mt-0.5">
-                  {snapshot.mtbfMin !== null ? `${snapshot.mtbfMin} min` : "—"}
-                </p>
-              </div>
-
-              <div
-                className="rounded border border-border bg-surface px-2.5 py-1.5"
-                title="Count of Downtime and Minor Stop events occurred during this shift"
-              >
-                <p className="text-muted-foreground text-[10px] uppercase font-semibold">
-                  Stops this shift
-                </p>
-                <p className="font-mono font-bold text-xs text-foreground mt-0.5">
-                  {snapshot.stopsThisShift}
-                </p>
+                <div>
+                  <p className="text-muted-foreground text-[10px] uppercase font-semibold">
+                    {resolved.periodKey === "this-shift"
+                      ? "Stops this shift"
+                      : resolved.periodKey === "today"
+                        ? "Stops today"
+                        : resolved.periodKey === "this-week"
+                          ? "Stops this week"
+                          : resolved.periodKey === "this-month"
+                            ? "Stops this month"
+                            : "Stops (custom range)"}
+                  </p>
+                  <p className="font-mono font-bold text-base text-foreground mt-0.5">
+                    {machineMetrics.stopsCount ?? snapshot.stopsThisShift}
+                  </p>
+                </div>
+                <span className="text-[10px] font-medium text-muted-foreground font-mono">
+                  {resolved.periodKey === "this-shift" ? "live shift" : resolved.label}
+                </span>
               </div>
             </div>
           </div>
@@ -291,57 +261,37 @@ function MachineDetail() {
               {/* Card 1: Machine OEE */}
               <KpiCard
                 label="Machine OEE"
-                value={snapshot.oee !== null ? snapshot.oee.toFixed(1) : "—"}
-                unit={snapshot.oee !== null ? "%" : ""}
-                caption={
-                  <span className="flex items-center gap-0.5 text-tier-good font-semibold">
-                    <ArrowUp className="size-3" />
-                    <span>+0.4%</span>
-                  </span>
-                }
-                comparisonLabel="vs 30s ago"
+                value={machineMetrics.oee.toFixed(1)}
+                unit="%"
+                caption={<Delta value={machineMetrics.deltaOee} />}
+                comparisonLabel={resolved.compareLabel}
               />
 
               {/* Card 2: Availability */}
               <KpiCard
                 label="Availability"
-                value={snapshot.availability !== null ? snapshot.availability.toFixed(1) : "—"}
-                unit={snapshot.availability !== null ? "%" : ""}
-                caption={
-                  <span className="flex items-center gap-0.5 text-tier-good font-semibold">
-                    <ArrowUp className="size-3" />
-                    <span>+0.5%</span>
-                  </span>
-                }
-                comparisonLabel="vs 30s ago"
+                value={machineMetrics.availability.toFixed(1)}
+                unit="%"
+                caption={<Delta value={machineMetrics.deltaAvailability} />}
+                comparisonLabel={resolved.compareLabel}
               />
 
               {/* Card 3: Performance */}
               <KpiCard
                 label="Performance"
-                value={snapshot.performance !== null ? snapshot.performance.toFixed(1) : "—"}
-                unit={snapshot.performance !== null ? "%" : ""}
-                caption={
-                  <span className="flex items-center gap-0.5 text-destructive font-semibold">
-                    <ArrowDown className="size-3" />
-                    <span>-0.3%</span>
-                  </span>
-                }
-                comparisonLabel="vs 30s ago"
+                value={machineMetrics.performance.toFixed(1)}
+                unit="%"
+                caption={<Delta value={machineMetrics.deltaPerformance} />}
+                comparisonLabel={resolved.compareLabel}
               />
 
               {/* Card 4: Quality */}
               <KpiCard
                 label="Quality"
-                value={snapshot.quality !== null ? snapshot.quality.toFixed(1) : "—"}
-                unit={snapshot.quality !== null ? "%" : ""}
-                caption={
-                  <span className="flex items-center gap-0.5 text-tier-good font-semibold">
-                    <ArrowUp className="size-3" />
-                    <span>+0.1%</span>
-                  </span>
-                }
-                comparisonLabel="vs 30s ago"
+                value={machineMetrics.quality.toFixed(1)}
+                unit="%"
+                caption={<Delta value={machineMetrics.deltaQuality} />}
+                comparisonLabel={resolved.compareLabel}
               />
 
               {/* Card 5: Output (pcs) with sub-line Good X · Rejects Y */}
@@ -401,49 +351,19 @@ function MachineDetail() {
             />
 
             {/* 3.5 & 3.8 LOSS STACK (Accordion between Loss Clarification & Machine Events) */}
-            {isMultiShift ? (
-              /* Multi-shift notice per §3.8 */
-              <div className="flex flex-col items-center justify-center rounded-lg border border-border/80 bg-surface p-8 text-center shadow-xs">
-                <Calendar className="size-8 text-muted-foreground mb-2" />
-                <h4 className="text-sm font-bold text-foreground">
-                  Loss Clarification works per shift
-                </h4>
-                <p className="text-xs text-muted-foreground mt-1 max-w-md">
-                  The selected period spans multiple shifts. To clarify losses or inspect the
-                  30-second timeline, please select a single shift.
-                </p>
-                <div className="flex items-center gap-2 mt-4">
-                  <button
-                    type="button"
-                    onClick={() => setPeriod("live")}
-                    className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground shadow-xs hover:bg-primary/90 cursor-pointer"
-                  >
-                    Switch to Current Shift (LIVE)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPeriod("last-shift")}
-                    className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted cursor-pointer"
-                  >
-                    Switch to Last Shift
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <LossStack
-                shift={shiftInfo}
-                machineCode={machine.id}
-                idealRatePpm={idealRatePpm}
-                orders={orders}
-                events={events}
-                windows={windows}
-                snapshot={snapshot}
-                selectedEventId={selectedEventId}
-                onSelectEventId={setSelectedEventId}
-                isLivePeriod={period === "live"}
-                forcedFocus={forcedFocus}
-              />
-            )}
+            <LossStack
+              shift={shiftInfo}
+              machineCode={machine.id}
+              idealRatePpm={idealRatePpm}
+              orders={orders}
+              events={events}
+              windows={windows}
+              snapshot={snapshot}
+              selectedEventId={selectedEventId}
+              onSelectEventId={setSelectedEventId}
+              isLivePeriod={resolved.periodKey === "this-shift"}
+              forcedFocus={forcedFocus}
+            />
           </div>
         </div>
 

@@ -7,6 +7,7 @@ import {
   IsoChip,
   IsoGround,
   IsoScene,
+  IsoBottleneckMarker,
   ZoomableMap,
   iso,
   MapHoverTooltip,
@@ -25,9 +26,15 @@ import {
 } from "@/components/oee/ui";
 import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { getZone, type Line } from "@/lib/oee/data";
-import type { PeriodId } from "@/lib/oee/filters";
 import { useApp } from "@/lib/oee/app-context";
-import { comparisonContext, useLiveZoneState } from "@/lib/oee/live-display";
+import { usePeriod } from "@/lib/oee/period";
+import {
+  getMetrics,
+  getBottleneck,
+  getActivePO,
+  PO_IDLE_PLACEHOLDER,
+  useLiveTick,
+} from "@/lib/oee/metrics-engine";
 import { rand } from "@/lib/oee/rng";
 import {
   Dialog,
@@ -93,8 +100,8 @@ function ZoneContent({
   plantId: string;
   zone: NonNullable<ReturnType<typeof getZone>>;
 }) {
-  const zoneId = zone.id;
-  const [period, setPeriod] = useState<PeriodId>("live");
+  const { resolved } = usePeriod();
+  const tick = useLiveTick();
   const [selected, setSelected] = useState<Line | null>(null);
   const [hovered, setHovered] = useState<Line | null>(null);
   const [tooltip, setTooltip] = useState<MapTooltipInfo | null>(null);
@@ -104,20 +111,28 @@ function ZoneContent({
   const navigate = useNavigate();
   const { role } = useApp();
 
-  const liveState = useLiveZoneState(
-    period,
-    zone.id,
-    { availability: zone.availability, performance: zone.performance, quality: zone.quality },
-    zone.lines,
-  );
-  const statusForLine = (line: Line) => liveState.lineStatuses[line.id] ?? line.status;
+  const zoneMetrics = useMemo(() => {
+    void tick;
+    return getMetrics(plantId, "zone", zone.id, resolved);
+  }, [plantId, zone.id, resolved, tick]);
+
+  const lineMetricsMap = useMemo(() => {
+    void tick;
+    const map: Record<string, ReturnType<typeof getMetrics>> = {};
+    for (const l of zone.lines) {
+      map[l.id] = getMetrics(plantId, "line", l.id, resolved);
+    }
+    return map;
+  }, [plantId, zone.lines, resolved, tick]);
+
+  const statusForLine = (line: Line) => line.status;
   const down = zone.lines.filter((l) => statusForLine(l) === "down").length;
   const slow = zone.lines.filter((l) => statusForLine(l) === "slow").length;
   const idle = zone.lines.filter((l) => statusForLine(l) === "idle").length;
   const machineCount = zone.lines.reduce((a, l) => a + l.machines.length, 0);
   const rows = 3;
   const cols = 5;
-  const compareLabel = comparisonContext(period);
+  const compareLabel = resolved.compareLabel;
   const issues = useMemo(() => {
     const priority = { down: 0, slow: 1, idle: 2 } as const;
     const reasons = {
@@ -131,7 +146,7 @@ function ZoneContent({
       idle: ["No Production Order", "Waiting Material", "Planned Cleaning"],
     } as const;
     return zone.lines
-      .map((line) => ({ line, status: liveState.lineStatuses[line.id] ?? line.status }))
+      .map((line) => ({ line, status: line.status }))
       .filter((item) => item.status !== "running")
       .map((item) => {
         const pool = reasons[item.status];
@@ -156,7 +171,7 @@ function ZoneContent({
       .sort(
         (a, b) => priority[a.status] - priority[b.status] || b.durationMinutes - a.durationMinutes,
       );
-  }, [liveState.lineStatuses, zone.id, zone.lines]);
+  }, [zone.id, zone.lines]);
 
   // Shift Leader enters here directly, so no Plant in the breadcrumb; Section Head
   // arrives by drill-down, so Plant is included (§4.1.3).
@@ -174,9 +189,6 @@ function ZoneContent({
       <PageHeader
         title={zone.name}
         crumbs={crumbs}
-        period={period}
-        onPeriod={setPeriod}
-        meta="Week 32 · 05-Aug 14:22"
         {...(role === "section-head"
           ? { back: { label: "Plant View", to: "/live/$plantId", params: { plantId } } }
           : {})}
@@ -185,42 +197,38 @@ function ZoneContent({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
           <KpiCard
             label="Zone OEE"
-            value={liveState.metrics.oee.toFixed(1)}
+            value={zoneMetrics.oee.toFixed(1)}
             unit="%"
             tone={
-              tierOf(liveState.metrics.oee) === "good"
+              tierOf(zoneMetrics.oee) === "good"
                 ? "good"
-                : tierOf(liveState.metrics.oee) === "warn"
+                : tierOf(zoneMetrics.oee) === "warn"
                   ? "warn"
                   : "bad"
             }
-            caption={<Delta value={liveState.deltas.oee} />}
+            caption={<Delta value={zoneMetrics.deltaOee} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Availability"
-            value={liveState.metrics.availability.toFixed(1)}
+            value={zoneMetrics.availability.toFixed(1)}
             unit="%"
-            caption={<Delta value={liveState.deltas.availability} />}
+            caption={<Delta value={zoneMetrics.deltaAvailability} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Performance"
-            value={liveState.metrics.performance.toFixed(1)}
+            value={zoneMetrics.performance.toFixed(1)}
             unit="%"
-            caption={<Delta value={liveState.deltas.performance} />}
+            caption={<Delta value={zoneMetrics.deltaPerformance} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           <KpiCard
             label="Quality"
-            value={liveState.metrics.quality.toFixed(1)}
+            value={zoneMetrics.quality.toFixed(1)}
             unit="%"
-            caption={<Delta value={liveState.deltas.quality} />}
+            caption={<Delta value={zoneMetrics.deltaQuality} />}
             comparisonLabel={compareLabel}
-            isUpdating={liveState.isUpdating}
           />
           {/* §7 point 5: one name only — "LINES DOWN". */}
           <KpiCard
@@ -258,6 +266,9 @@ function ZoneContent({
                     const by = 0.5 + Math.floor(i / cols) * GAP_Y;
                     const isActive = activeLine?.id === l.id;
                     const lineStatus = statusForLine(l);
+                    const lineM =
+                      lineMetricsMap[l.id] ?? getMetrics(plantId, "line", l.id, resolved);
+                    const activePO = getActivePO(plantId, l.id);
                     return (
                       <g key={l.id}>
                         <IsoBlock
@@ -276,9 +287,13 @@ function ZoneContent({
                               setTooltip({
                                 title: `Line ${l.id}`,
                                 subtitle: `${l.sku} · ${l.machines.length} machines`,
+                                po: activePO?.poNumber ?? PO_IDLE_PLACEHOLDER,
+                                poOutput: activePO
+                                  ? `${activePO.currentOutput.toLocaleString()} / ${activePO.totalMPQ.toLocaleString()}`
+                                  : "- / -",
                                 status: lineStatus,
                                 statusLabel: STATUS_LABEL[lineStatus],
-                                oee: l.oee,
+                                oee: lineM.oee,
                                 x: e.clientX - rect.left,
                                 y: e.clientY - rect.top,
                               });
@@ -290,9 +305,13 @@ function ZoneContent({
                               setTooltip({
                                 title: `Line ${l.id}`,
                                 subtitle: `${l.sku} · ${l.machines.length} machines`,
+                                po: activePO?.poNumber ?? PO_IDLE_PLACEHOLDER,
+                                poOutput: activePO
+                                  ? `${activePO.currentOutput.toLocaleString()} / ${activePO.totalMPQ.toLocaleString()}`
+                                  : "- / -",
                                 status: lineStatus,
                                 statusLabel: STATUS_LABEL[lineStatus],
-                                oee: l.oee,
+                                oee: lineM.oee,
                                 x: e.clientX - rect.left,
                                 y: e.clientY - rect.top,
                               });
@@ -304,6 +323,13 @@ function ZoneContent({
                           }}
                           dim={!!activeLine && !isActive}
                         />
+                        {/* Bottleneck Marker above the line box */}
+                        <IsoBottleneckMarker
+                          x={bx + BLOCK_W / 2}
+                          y={by + BLOCK_D / 2}
+                          h={(isActive ? 30 : 20) + 14}
+                          s={S}
+                        />
                         {/* machine status dots inside the line footprint */}
                         {l.machines.map((m, mi) => {
                           const p = iso(bx + 0.2 + mi * 0.22, by + 0.48, isActive ? 34 : 24, S);
@@ -313,9 +339,7 @@ function ZoneContent({
                               cx={p.x}
                               cy={p.y}
                               r={2.8}
-                              fill={
-                                STATUS_HEX[liveState.machineStatuses[`${l.id}:${m.id}`] ?? m.status]
-                              }
+                              fill={STATUS_HEX[m.status]}
                               stroke="var(--surface)"
                               strokeWidth={0.8}
                             />
@@ -327,8 +351,8 @@ function ZoneContent({
                           s={S}
                           h={isActive ? 34 : 24}
                           label={l.id}
-                          value={`${l.oee.toFixed(0)}%`}
-                          color={TIER_HEX[tierOf(l.oee)]}
+                          value={`${lineM.oee.toFixed(0)}%`}
+                          color={TIER_HEX[tierOf(lineM.oee)]}
                         />
                       </g>
                     );
