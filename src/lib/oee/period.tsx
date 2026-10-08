@@ -23,11 +23,19 @@ export const CUSTOM_RANGE_MAX_DAYS = 31;
 export type ComparisonMode = "like_for_like" | "full_previous";
 export const COMPARISON_MODE: ComparisonMode = "like_for_like";
 
+export const CUSTOM_TIME_MODE = "continuous";
+
 export type CustomRangeConfig = {
   startDate: Date;
   endDate: Date;
+  startTime?: string; // "HH:mm" 24h
+  endTime?: string; // "HH:mm" 24h
+  hasCustomCompare?: boolean;
+  compareAllDay?: boolean;
   compareStartDate?: Date;
   compareEndDate?: Date;
+  compareStartTime?: string; // "HH:mm" 24h
+  compareEndTime?: string; // "HH:mm" 24h
 };
 
 export type ShiftDefinition = {
@@ -46,6 +54,8 @@ export type ResolvedPeriod = {
   periodLabel: string;
   isCurrentDayOrShift: boolean;
   isPastClosed: boolean;
+  isFutureEnd?: boolean;
+  futureEndNotice?: string;
   elapsedMs: number;
   totalPeriodMs: number;
 };
@@ -68,6 +78,32 @@ function formatShortDate(d: Date): string {
   ];
   const m = months[d.getMonth()];
   return `${day} ${m}`;
+}
+
+function formatTimeHHmm(d: Date): string {
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+export function formatCustomPeriodLabel(start: Date, end: Date, isWholeDay: boolean): string {
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+
+  if (isWholeDay) {
+    if (sameDay) {
+      return formatShortDate(start);
+    }
+    return `${formatShortDate(start)} – ${formatShortDate(end)}`;
+  }
+
+  if (sameDay) {
+    return `${formatShortDate(start)} · ${formatTimeHHmm(start)}–${formatTimeHHmm(end)}`;
+  }
+
+  return `${formatShortDate(start)} ${formatTimeHHmm(start)} – ${formatShortDate(end)} ${formatTimeHHmm(end)}`;
 }
 
 /**
@@ -223,53 +259,108 @@ export function resolvePeriod(
   // Custom Range
   if (customRange && customRange.startDate && customRange.endDate) {
     const rawStart = new Date(customRange.startDate);
-    rawStart.setHours(0, 0, 0, 0);
-    let rawEnd = new Date(customRange.endDate);
-    rawEnd.setHours(23, 59, 59, 999);
+    const rawEnd = new Date(customRange.endDate);
 
-    // End date cannot be in the future (cap to now)
-    if (rawEnd.getTime() > nowTs) {
-      rawEnd = new Date(nowTs);
+    const hasStartTime = Boolean(customRange.startTime);
+    const hasEndTime = Boolean(customRange.endTime);
+    const isWholeDay = !hasStartTime && !hasEndTime;
+
+    if (hasStartTime && customRange.startTime) {
+      const [sh, sm] = customRange.startTime.split(":").map((v) => parseInt(v, 10));
+      rawStart.setHours(isNaN(sh) ? 0 : sh, isNaN(sm) ? 0 : sm, 0, 0);
+    } else {
+      rawStart.setHours(0, 0, 0, 0);
+    }
+
+    if (hasEndTime && customRange.endTime) {
+      const [eh, em] = customRange.endTime.split(":").map((v) => parseInt(v, 10));
+      rawEnd.setHours(isNaN(eh) ? 23 : eh, isNaN(em) ? 59 : em, 0, 0);
+    } else {
+      rawEnd.setHours(23, 59, 59, 999);
+    }
+
+    // Future end handling: end can be chosen in future; window end = min(now, customEnd)
+    const isFutureEnd = rawEnd.getTime() > nowTs;
+    const effectiveEnd = isFutureEnd ? new Date(nowTs) : new Date(rawEnd.getTime());
+
+    let futureEndNotice: string | undefined;
+    if (isFutureEnd) {
+      const endHHmm = formatTimeHHmm(rawEnd);
+      futureEndNotice = `Ends now (live) until ${endHHmm}`;
     }
 
     // Clamp range to max CUSTOM_RANGE_MAX_DAYS
     const maxMs = CUSTOM_RANGE_MAX_DAYS * 24 * 3600 * 1000;
     if (rawEnd.getTime() - rawStart.getTime() > maxMs) {
-      rawEnd = new Date(rawStart.getTime() + maxMs - 1000);
+      rawEnd.setTime(rawStart.getTime() + maxMs);
     }
 
+    const elapsedMs = Math.max(1000, effectiveEnd.getTime() - rawStart.getTime());
     const totalPeriodMs = Math.max(1000, rawEnd.getTime() - rawStart.getTime());
-    const isCurrentDayOrShift = rawEnd.getTime() >= nowTs - 24 * 3600 * 1000;
-    const isPastClosed = !isCurrentDayOrShift;
+    const isCurrentDayOrShift = effectiveEnd.getTime() >= nowTs - 24 * 3600 * 1000;
+    const isPastClosed = !isFutureEnd && rawEnd.getTime() < nowTs - 60000;
 
     let compareStart: Date;
     let compareEnd: Date;
     let compareLabel = "vs previous period";
 
-    if (customRange.compareStartDate && customRange.compareEndDate) {
+    if (
+      customRange.hasCustomCompare &&
+      customRange.compareStartDate &&
+      customRange.compareEndDate
+    ) {
       compareStart = new Date(customRange.compareStartDate);
-      compareStart.setHours(0, 0, 0, 0);
       compareEnd = new Date(customRange.compareEndDate);
-      compareEnd.setHours(23, 59, 59, 999);
-      compareLabel = `vs ${formatShortDate(compareStart)} – ${formatShortDate(compareEnd)}`;
+
+      if (customRange.compareAllDay) {
+        // Compare all day: 00:00 to 23:59
+        compareStart.setHours(0, 0, 0, 0);
+        compareEnd.setHours(23, 59, 59, 999);
+        compareLabel = `vs ${formatShortDate(compareStart)} – ${formatShortDate(compareEnd)} (all day)`;
+      } else {
+        // Same time-of-day interval as primary range
+        if (customRange.compareStartTime) {
+          const [csh, csm] = customRange.compareStartTime.split(":").map((v) => parseInt(v, 10));
+          compareStart.setHours(isNaN(csh) ? 0 : csh, isNaN(csm) ? 0 : csm, 0, 0);
+        } else if (hasStartTime && customRange.startTime) {
+          const [sh, sm] = customRange.startTime.split(":").map((v) => parseInt(v, 10));
+          compareStart.setHours(isNaN(sh) ? 0 : sh, isNaN(sm) ? 0 : sm, 0, 0);
+        } else {
+          compareStart.setHours(0, 0, 0, 0);
+        }
+
+        if (customRange.compareEndTime) {
+          const [ceh, cem] = customRange.compareEndTime.split(":").map((v) => parseInt(v, 10));
+          compareEnd.setHours(isNaN(ceh) ? 23 : ceh, isNaN(cem) ? 59 : cem, 0, 0);
+        } else if (hasEndTime && customRange.endTime) {
+          const [eh, em] = customRange.endTime.split(":").map((v) => parseInt(v, 10));
+          compareEnd.setHours(isNaN(eh) ? 23 : eh, isNaN(em) ? 59 : em, 0, 0);
+        } else {
+          compareEnd.setHours(23, 59, 59, 999);
+        }
+        compareLabel = `vs ${formatShortDate(compareStart)} – ${formatShortDate(compareEnd)}`;
+      }
     } else {
+      // Default like-for-like preceding duration
       compareStart = new Date(rawStart.getTime() - totalPeriodMs);
       compareEnd = new Date(rawStart.getTime());
     }
 
-    const periodLabel = `${formatShortDate(rawStart)} – ${formatShortDate(rawEnd)}`;
+    const periodLabel = formatCustomPeriodLabel(rawStart, rawEnd, isWholeDay);
 
     return {
       periodKey: "custom",
       start: rawStart,
-      end: rawEnd,
+      end: effectiveEnd,
       compareStart,
       compareEnd,
       compareLabel,
       periodLabel,
       isCurrentDayOrShift,
       isPastClosed,
-      elapsedMs: totalPeriodMs,
+      isFutureEnd,
+      futureEndNotice,
+      elapsedMs,
       totalPeriodMs,
     };
   }
@@ -340,8 +431,14 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
         return {
           startDate: new Date(parsed.startDate),
           endDate: new Date(parsed.endDate),
+          startTime: parsed.startTime,
+          endTime: parsed.endTime,
+          hasCustomCompare: parsed.hasCustomCompare,
+          compareAllDay: parsed.compareAllDay,
           compareStartDate: parsed.compareStartDate ? new Date(parsed.compareStartDate) : undefined,
           compareEndDate: parsed.compareEndDate ? new Date(parsed.compareEndDate) : undefined,
+          compareStartTime: parsed.compareStartTime,
+          compareEndTime: parsed.compareEndTime,
         };
       }
     } catch {

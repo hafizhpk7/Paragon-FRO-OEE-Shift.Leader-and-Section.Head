@@ -98,9 +98,9 @@ export function MultiPlantView() {
       />
       <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
         {/* Top Summary & Plant KPI Cards */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 rounded-lg border border-border bg-surface p-3 sm:p-4 transition-colors">
+        <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-4 rounded-lg border border-border bg-surface p-3 sm:p-4 transition-colors">
           {/* Group Aggregate Overview */}
-          <div className="flex flex-wrap sm:flex-nowrap items-center justify-center sm:justify-start gap-4 pb-3 lg:pb-0 lg:pr-4 border-b lg:border-b-0 lg:border-r border-border/60 shrink-0">
+          <div className="flex flex-wrap sm:flex-nowrap items-center justify-center sm:justify-start gap-4 pb-3 xl:pb-0 xl:pr-4 border-b xl:border-b-0 xl:border-r border-border/60 shrink-0">
             <div className="flex flex-col items-center shrink-0">
               <Donut value={groupMetrics.oee} size={92} label="Group OEE" />
               <div className="mt-1 flex flex-col items-center text-center">
@@ -115,14 +115,14 @@ export function MultiPlantView() {
           </div>
 
           {/* Plant KPI Cards: Operational & Upcoming */}
-          <div className="grid w-full flex-1 gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="grid w-full flex-1 gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-5 min-w-0">
             {PLANTS.map((p) => {
               if (!p.isOperational) {
                 // Upcoming Plants (Klang, Batang)
                 return (
                   <div
                     key={p.id}
-                    className="flex flex-col justify-between rounded-lg border border-dashed border-border bg-surface/40 p-3 text-left transition-colors select-none"
+                    className="flex flex-col justify-between rounded-lg border border-dashed border-border bg-surface/40 p-3 text-left transition-colors select-none min-w-0"
                   >
                     <div>
                       <div className="flex items-center justify-between gap-1.5 pb-1">
@@ -161,7 +161,7 @@ export function MultiPlantView() {
                   key={p.id}
                   type="button"
                   onClick={() => navigate({ to: "/live/$plantId", params: { plantId: p.id } })}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-surface p-2.5 text-left transition-all hover:border-primary hover:shadow-sm cursor-pointer"
+                  className="flex items-center gap-3 rounded-lg border border-border bg-surface p-2.5 text-left transition-all hover:border-primary hover:shadow-sm cursor-pointer min-w-0"
                 >
                   <div className="flex flex-col items-center shrink-0">
                     <Donut value={livePlant.oee} size={58} label={p.id} />

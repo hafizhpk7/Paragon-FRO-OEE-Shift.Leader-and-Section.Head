@@ -8,7 +8,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Paragon OEE FRO dashboard prototype: Group level live monitor with 3D satellite view and real-time OEE telemetry.",
+          "Paragon OEE FRO dashboard prototype: Group level live monitor with interactive open map and real-time OEE telemetry.",
       },
       { property: "og:title", content: "Paragon OEE FRO Dashboard — Live Monitor" },
       {

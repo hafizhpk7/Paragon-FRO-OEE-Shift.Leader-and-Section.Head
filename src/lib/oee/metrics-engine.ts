@@ -173,11 +173,13 @@ export function getMachineStopsCount(
     case "this-month":
       baseStops = Math.floor(40 + rng() * 18); // 40-57
       break;
-    case "custom-range": {
-      const days = Math.max(
-        1,
-        Math.round((resolved.end.getTime() - resolved.start.getTime()) / (1000 * 60 * 60 * 24)),
+    case "custom":
+    case "custom-range" as unknown as PeriodKey: {
+      const minutes = Math.max(
+        5,
+        Math.round((resolved.end.getTime() - resolved.start.getTime()) / (1000 * 60)),
       );
+      const days = Math.max(0.1, minutes / (60 * 24));
       baseStops = Math.min(60, Math.max(2, Math.floor(days * (2 + rng() * 2))));
       break;
     }
@@ -350,8 +352,11 @@ function calcOee(a: number, p: number, q: number) {
   return clampPct((a * p * q) / 10000);
 }
 
+export const BASE_BUCKET_MINUTES = 5;
+
 /**
  * Deterministic seeded baseline generator for a machine.
+ * Base resolution = 5-minute buckets (BASE_BUCKET_MINUTES = 5), lazy and deterministic.
  */
 function getRawMachineMetrics(
   plantId: string,
@@ -360,6 +365,7 @@ function getRawMachineMetrics(
   periodKey: PeriodKey,
   isClosedPast: boolean,
   tick: number,
+  resolvedPeriod?: ResolvedPeriod,
 ): EntityMetrics {
   const seed = `${plantId}-${lineId}-${machineId}-${periodKey}`;
   const r = makeRng(seed);
@@ -375,6 +381,18 @@ function getRawMachineMetrics(
   } else if (periodKey === "this-month") {
     a += 0.5;
     p += 1.4;
+  } else if (periodKey === "custom" && resolvedPeriod) {
+    // 5-minute bucket hash to create minute-precise deterministic shift
+    const bucketStartMs = Math.floor(
+      resolvedPeriod.start.getTime() / (BASE_BUCKET_MINUTES * 60 * 1000),
+    );
+    const bucketEndMs = Math.floor(
+      resolvedPeriod.end.getTime() / (BASE_BUCKET_MINUTES * 60 * 1000),
+    );
+    const bucketSeed = `${seed}-${bucketStartMs}-${bucketEndMs}`;
+    const bRng = makeRng(bucketSeed);
+    a += bRng() * 2 - 1;
+    p += bRng() * 2 - 1;
   }
 
   // Live drift
@@ -406,7 +424,13 @@ function getRawMachineMetrics(
   if (periodKey === "today") stopsBase = 18;
   else if (periodKey === "this-week") stopsBase = 32;
   else if (periodKey === "this-month") stopsBase = 52;
-  else if (periodKey === "custom-range") stopsBase = 28;
+  else if (periodKey === "custom" && resolvedPeriod) {
+    const hours = Math.max(
+      1,
+      (resolvedPeriod.end.getTime() - resolvedPeriod.start.getTime()) / (3600 * 1000),
+    );
+    stopsBase = Math.min(60, Math.max(2, Math.round(hours * 2.2)));
+  } else if (periodKey === "custom-range") stopsBase = 28;
 
   const stopsCount = Math.max(1, Math.round(stopsBase + (r() * 4 - 2)));
 
@@ -459,7 +483,11 @@ export function getMetrics(
   const isPastClosed = resolved.isPastClosed;
   const tick = globalTickCount;
 
-  const cacheKey = `${plantId}:${entityType}:${entityId}:${resolved.periodKey}:${tick}`;
+  const periodSubKey =
+    resolved.periodKey === "custom"
+      ? `custom:${resolved.start.getTime()}:${resolved.end.getTime()}`
+      : resolved.periodKey;
+  const cacheKey = `${plantId}:${entityType}:${entityId}:${periodSubKey}:${tick}`;
   const cached = metricsCache.get(cacheKey);
   if (cached && cached.expiry > Date.now()) {
     return cached.metrics;
@@ -479,6 +507,7 @@ export function getMetrics(
       resolved.periodKey,
       isPastClosed,
       tick,
+      resolved,
     );
   } else if (entityType === "line") {
     const lineId = entityId;
@@ -491,6 +520,7 @@ export function getMetrics(
       resolved.periodKey,
       isPastClosed,
       tick,
+      resolved,
     );
 
     const line =

@@ -37,6 +37,8 @@ export interface MachineEvent {
   startSec: number; // Seconds from shift start (0..28800)
   endSec: number; // Seconds from shift start (0..28800)
   durationSec: number;
+  startAt: number; // Canonical absolute epoch milliseconds
+  endAt: number; // Canonical absolute epoch milliseconds
   type: EventType;
   speedPct?: number; // For speed_loss (e.g. 78%)
   plcAlarm?: string;
@@ -167,6 +169,40 @@ export function getSavedClassifications(
   return result;
 }
 
+import { toast } from "sonner";
+import {
+  canEditClassified,
+  isItemEligible,
+  explainLossPolicy,
+  lossEventRegistry,
+} from "./lossClarificationPolicy";
+import type { Role } from "./app-context";
+
+/**
+ * Normalizes event timestamps to ensure canonical absolute epoch milliseconds.
+ * If startAt is non-finite, logs console.error and derives a fallback.
+ */
+export function normalizeEventTimestamps(event: MachineEvent, windowStartMs: number): MachineEvent {
+  let startAt = event.startAt;
+  let endAt = event.endAt;
+
+  if (typeof startAt !== "number" || !Number.isFinite(startAt)) {
+    console.error(`[OEE] normalizeEventTimestamps: invalid startAt on event ${event.id}:`, startAt);
+    startAt = windowStartMs + (Number.isFinite(event.startSec) ? event.startSec * 1000 : 0);
+  }
+
+  if (typeof endAt !== "number" || !Number.isFinite(endAt)) {
+    const durationMs = Number.isFinite(event.durationSec) ? event.durationSec * 1000 : 0;
+    endAt = startAt + durationMs;
+  }
+
+  return {
+    ...event,
+    startAt,
+    endAt,
+  };
+}
+
 export function saveEventClassification(
   shiftKey: string,
   machineCode: string,
@@ -174,9 +210,47 @@ export function saveEventClassification(
   causes: LossCause[],
   note?: string,
   causeMachineCode?: string,
-) {
-  const key = `fro-oee-loss:${shiftKey}:${machineCode}`;
+  role?: Role | string,
+  itemStartAt?: number, // Canonical absolute epoch milliseconds
+): { success: boolean; error?: string } {
+  const currentRole = (role ||
+    (typeof window !== "undefined" ? localStorage.getItem("paragon_oee_role") : null) ||
+    "section-head") as string;
+  const now = new Date();
+
+  // 1. Invariant: Valid canonical timestamp
+  if (itemStartAt === undefined || !Number.isFinite(itemStartAt)) {
+    console.error(
+      `[OEE] Cannot save: invalid or missing itemStartAt for event ${eventId}:`,
+      itemStartAt,
+    );
+    const explanation = explainLossPolicy(eventId, itemStartAt, false, currentRole, now);
+    console.warn("[OEE] Loss policy rejected action (invalid timestamp):", explanation);
+    toast.error("Cannot save: this loss has no valid start time");
+    return { success: false, error: "Cannot save: this loss has no valid start time" };
+  }
+
+  // 2. 7-day lookback gate: check isItemEligible
+  if (!isItemEligible(itemStartAt, now)) {
+    const explanation = explainLossPolicy(eventId, itemStartAt, false, currentRole, now);
+    console.warn("[OEE] Loss policy rejected action (out of range):", explanation);
+    toast.error("Only the last 7 days can be clarified");
+    return { success: false, error: "Only the last 7 days can be clarified" };
+  }
+
+  // 3. Role check: editing existing classified item requires canEditClassified
   const existing = getSavedClassifications(shiftKey, machineCode);
+  const existingCauses = existing[eventId];
+  const isAlreadyClassified = existingCauses && existingCauses.length > 0;
+
+  if (isAlreadyClassified && !canEditClassified(currentRole)) {
+    const explanation = explainLossPolicy(eventId, itemStartAt, true, currentRole, now);
+    console.warn("[OEE] Loss policy rejected action (role denied):", explanation);
+    toast.error("Only Section Head can edit classified loss");
+    return { success: false, error: "Only Section Head can edit classified loss" };
+  }
+
+  const key = `fro-oee-loss:${shiftKey}:${machineCode}`;
   existing[eventId] = causes;
   try {
     localStorage.setItem(key, JSON.stringify(existing));
@@ -185,6 +259,7 @@ export function saveEventClassification(
   }
   memoryClassificationStore.set(`${shiftKey}:${machineCode}:${eventId}`, causes);
   notifyClassificationChanged();
+  return { success: true };
 }
 
 /**
@@ -354,34 +429,42 @@ export function getShiftTimeline(
   else if (periodKey === "this-month") targetEventCount = 50;
   else if (periodKey === "custom-range") targetEventCount = 25;
 
+  const windowStartMs = shift.startSec * 1000;
   const rawEvents: MachineEvent[] = [];
 
   // 1. First event: Planned briefing
   const firstEvId = `${plantId}-${machineCode}-EV-01`;
-  rawEvents.push({
-    id: firstEvId,
-    machineCode,
-    startSec: 0,
-    endSec: 900,
-    durationSec: 900,
-    type: "planned",
-    orderId: "PO-2811",
-    sku: orders[0].sku,
-    productName: orders[0].productName,
-    source: "Operator",
-    causes: [
+  rawEvents.push(
+    normalizeEventTimestamps(
       {
-        id: `C-${firstEvId}-0`,
+        id: firstEvId,
+        machineCode,
+        startSec: 0,
+        endSec: 900,
         durationSec: 900,
-        l0Component: "Loading",
-        l1Parent: "Planned Downtime",
-        l2CategoryId: "PLN-BRK",
-        l2CategoryName: "Break & Rest Time",
-        l3ReasonId: "R-BRK-02",
-        l3ReasonName: "Shift handover & briefing",
+        startAt: windowStartMs,
+        endAt: windowStartMs + 900 * 1000,
+        type: "planned",
+        orderId: "PO-2811",
+        sku: orders[0].sku,
+        productName: orders[0].productName,
+        source: "Operator",
+        causes: [
+          {
+            id: `C-${firstEvId}-0`,
+            durationSec: 900,
+            l0Component: "Loading",
+            l1Parent: "Planned Downtime",
+            l2CategoryId: "PLN-BRK",
+            l2CategoryName: "Break & Rest Time",
+            l3ReasonId: "R-BRK-02",
+            l3ReasonName: "Shift handover & briefing",
+          },
+        ],
       },
-    ],
-  });
+      windowStartMs,
+    ),
+  );
 
   // 2. Generate remaining events spread across timeline
   const intervalSpacing = Math.floor((SHIFT_SECONDS - 1800) / targetEventCount);
@@ -437,41 +520,55 @@ export function getShiftTimeline(
         ]
       : [];
 
-    rawEvents.push({
-      id: evId,
-      machineCode,
-      startSec,
-      endSec,
-      durationSec,
-      type,
-      speedPct,
-      plcAlarm,
-      orderId: order.id,
-      sku: order.sku,
-      productName: order.productName,
-      source: isPreClassified ? "PLC" : undefined,
-      causes,
-    });
+    rawEvents.push(
+      normalizeEventTimestamps(
+        {
+          id: evId,
+          machineCode,
+          startSec,
+          endSec,
+          durationSec,
+          startAt: windowStartMs + startSec * 1000,
+          endAt: windowStartMs + endSec * 1000,
+          type,
+          speedPct,
+          plcAlarm,
+          orderId: order.id,
+          sku: order.sku,
+          productName: order.productName,
+          source: isPreClassified ? "PLC" : undefined,
+          causes,
+        },
+        windowStartMs,
+      ),
+    );
   }
 
   // Ongoing stop if currently near active time in live mode
   if (revealSec < SHIFT_SECONDS && revealSec > 3600) {
     const ongoingStart = Math.max(1200, revealSec - 600);
     const ongoingId = `${plantId}-${machineCode}-EV-ONGOING`;
-    rawEvents.push({
-      id: ongoingId,
-      machineCode,
-      startSec: ongoingStart,
-      endSec: revealSec,
-      durationSec: Math.max(30, revealSec - ongoingStart),
-      type: "minor_stop",
-      orderId: ongoingStart >= 18000 ? "PO-2810" : "PO-2811",
-      sku: ongoingStart >= 18000 ? orders[1].sku : orders[0].sku,
-      productName: ongoingStart >= 18000 ? orders[1].productName : orders[0].productName,
-      plcAlarm: "Conveyor jam at infeed",
-      isOngoing: true,
-      causes: [],
-    });
+    rawEvents.push(
+      normalizeEventTimestamps(
+        {
+          id: ongoingId,
+          machineCode,
+          startSec: ongoingStart,
+          endSec: revealSec,
+          durationSec: Math.max(30, revealSec - ongoingStart),
+          startAt: windowStartMs + ongoingStart * 1000,
+          endAt: windowStartMs + revealSec * 1000,
+          type: "minor_stop",
+          orderId: ongoingStart >= 18000 ? "PO-2810" : "PO-2811",
+          sku: ongoingStart >= 18000 ? orders[1].sku : orders[0].sku,
+          productName: ongoingStart >= 18000 ? orders[1].productName : orders[0].productName,
+          plcAlarm: "Conveyor jam at infeed",
+          isOngoing: true,
+          causes: [],
+        },
+        windowStartMs,
+      ),
+    );
   }
 
   // 3. Apply saved classifications from persistent store
@@ -488,25 +585,20 @@ export function getShiftTimeline(
 
       // Check if user has saved classifications for this event
       const userCauses = savedClassifications[e.id];
-      if (userCauses && userCauses.length > 0) {
-        return {
-          ...e,
-          endSec: effEnd,
-          durationSec: effDur,
-          type: effType,
-          isOngoing,
-          source: "You" as const,
-          causes: userCauses,
-        };
-      }
-
-      return {
+      const baseEvent: MachineEvent = {
         ...e,
         endSec: effEnd,
         durationSec: effDur,
+        endAt: windowStartMs + effEnd * 1000,
         type: effType,
         isOngoing,
+        source: userCauses && userCauses.length > 0 ? ("You" as const) : e.source,
+        causes: userCauses && userCauses.length > 0 ? userCauses : e.causes,
       };
+
+      const normalized = normalizeEventTimestamps(baseEvent, windowStartMs);
+      lossEventRegistry.set(normalized.id, normalized);
+      return normalized;
     });
 
   // 4. Generate 30s Timeline Windows (0..960)

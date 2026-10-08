@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { LossClarification } from "./LossClarification";
 import { MachineEvents } from "./MachineEvents";
 import type { ShiftInfo } from "@/lib/oee/shiftClock";
+import type { ResolvedPeriod } from "@/lib/oee/period";
 import type {
   MachineEvent,
   ProductionOrder,
@@ -21,6 +22,7 @@ export interface LossStackProps {
   onSelectEventId: (id: string | null) => void;
   isLivePeriod?: boolean;
   forcedFocus?: "loss" | "events" | null;
+  resolved?: ResolvedPeriod;
   className?: string;
 }
 
@@ -36,6 +38,7 @@ export function LossStack({
   onSelectEventId,
   isLivePeriod = true,
   forcedFocus,
+  resolved,
   className,
 }: LossStackProps) {
   // First visit default: 'loss' if unclassified/ongoing exists, otherwise 'events' (§3.5)
@@ -88,6 +91,7 @@ export function LossStack({
         onSelectEventId={onSelectEventId}
         isExpanded={focus === "loss"}
         onToggleExpand={() => handleSetFocus(focus === "loss" ? "events" : "loss")}
+        resolved={resolved}
       />
 
       {/* 2. Machine Events Panel (Bottom) */}
@@ -103,6 +107,7 @@ export function LossStack({
         isExpanded={focus === "events"}
         onToggleExpand={() => handleSetFocus(focus === "events" ? "loss" : "events")}
         isLivePeriod={isLivePeriod}
+        resolved={resolved}
       />
     </div>
   );

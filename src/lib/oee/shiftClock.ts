@@ -36,8 +36,13 @@ export function getWibNow(refDate: Date = new Date()): Date {
 /**
  * Formats a Date or timestamp as HH:MM or HH:MM:SS in WIB
  */
-export function formatTimeWib(dateOrSec: Date | number, includeSec = false): string {
-  const d = typeof dateOrSec === "number" ? new Date(dateOrSec * 1000) : dateOrSec;
+export function formatTimeWib(dateOrSecOrMs: Date | number, includeSec = false): string {
+  const d =
+    typeof dateOrSecOrMs === "number"
+      ? dateOrSecOrMs > 1e11
+        ? new Date(dateOrSecOrMs)
+        : new Date(dateOrSecOrMs * 1000)
+      : dateOrSecOrMs;
   const wib = getWibNow(d);
   const h = String(wib.getHours()).padStart(2, "0");
   const m = String(wib.getMinutes()).padStart(2, "0");

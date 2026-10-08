@@ -39,6 +39,8 @@ import {
   getShiftInfo,
   type ShiftInfo,
 } from "@/lib/oee/shiftClock";
+import { toast } from "sonner";
+import { isPeriodEligible } from "@/lib/oee/lossClarificationPolicy";
 import { cn } from "@/lib/utils";
 
 // Memoized 3D Machine Viewer to prevent Three.js scene remounting during 2s data ticks (§8)
@@ -132,6 +134,13 @@ function MachineDetail() {
 
   // Handle "Clarify now" click from Active Stop Banner
   const handleClarifyNow = () => {
+    // If current period is not eligible for loss clarification, auto-switch to 'this-shift'
+    const now = new Date();
+    if (!isPeriodEligible(resolved, now)) {
+      setPeriodKey("this-shift");
+      toast.info("Period changed to This Shift to clarify the current stop");
+    }
+
     if (snapshot.activeStop) {
       setSelectedEventId(snapshot.activeStop.event.id);
     }
@@ -358,6 +367,7 @@ function MachineDetail() {
               onSelectEventId={setSelectedEventId}
               isLivePeriod={resolved.periodKey === "this-shift"}
               forcedFocus={forcedFocus}
+              resolved={resolved}
             />
           </div>
         </div>

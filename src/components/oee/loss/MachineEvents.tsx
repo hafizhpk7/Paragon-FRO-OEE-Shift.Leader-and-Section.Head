@@ -23,6 +23,8 @@ import {
   type ShiftSnapshot,
   type TimelineWindow,
 } from "@/lib/oee/machineEvents";
+import { isPeriodEligible } from "@/lib/oee/lossClarificationPolicy";
+import type { ResolvedPeriod } from "@/lib/oee/period";
 import { cn } from "@/lib/utils";
 
 export interface MachineEventsProps {
@@ -37,6 +39,7 @@ export interface MachineEventsProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   isLivePeriod?: boolean;
+  resolved?: ResolvedPeriod;
   className?: string;
 }
 
@@ -54,9 +57,12 @@ export function MachineEvents({
   isExpanded,
   onToggleExpand,
   isLivePeriod = true,
+  resolved,
   className,
 }: MachineEventsProps) {
   const [rangeView, setRangeView] = useState<RangeView>("full");
+  const now = new Date();
+  const isEligible = !resolved || isPeriodEligible(resolved, now);
   const [hoveredX, setHoveredX] = useState<number | null>(null);
   const [hoveredWindow, setHoveredWindow] = useState<TimelineWindow | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<MachineEvent | null>(null);
@@ -392,14 +398,25 @@ export function MachineEvents({
             </div>
             <div>
               <span className="text-[10px] text-muted-foreground uppercase">Unclassified: </span>
-              <span
-                className={cn(
-                  "font-mono font-bold",
-                  snapshot.unclassifiedCount > 0 ? "text-destructive" : "text-tier-good",
-                )}
-              >
-                {snapshot.unclassifiedCount}
-              </span>
+              {isEligible ? (
+                <span
+                  className={cn(
+                    "font-mono font-bold",
+                    snapshot.unclassifiedCount > 0 ? "text-destructive" : "text-tier-good",
+                  )}
+                  data-metric="unclassified-count"
+                >
+                  {snapshot.unclassifiedCount}
+                </span>
+              ) : (
+                <span
+                  className="font-mono font-bold text-muted-foreground cursor-help"
+                  title="Loss clarification is available for the last 7 days only"
+                  data-metric="unclassified-count"
+                >
+                  —
+                </span>
+              )}
             </div>
           </div>
 
@@ -527,14 +544,25 @@ export function MachineEvents({
 
           <div>
             <span className="text-[10px] text-muted-foreground">Unclassified: </span>
-            <span
-              className={cn(
-                "font-mono font-bold",
-                snapshot.unclassifiedCount > 0 ? "text-destructive" : "text-tier-good",
-              )}
-            >
-              {snapshot.unclassifiedCount} losses
-            </span>
+            {isEligible ? (
+              <span
+                className={cn(
+                  "font-mono font-bold",
+                  snapshot.unclassifiedCount > 0 ? "text-destructive" : "text-tier-good",
+                )}
+                data-metric="unclassified-count"
+              >
+                {snapshot.unclassifiedCount} losses
+              </span>
+            ) : (
+              <span
+                className="font-mono font-bold text-muted-foreground cursor-help"
+                title="Loss clarification is available for the last 7 days only"
+                data-metric="unclassified-count"
+              >
+                —
+              </span>
+            )}
           </div>
 
           <button

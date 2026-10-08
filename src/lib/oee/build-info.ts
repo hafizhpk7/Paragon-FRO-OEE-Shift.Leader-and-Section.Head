@@ -1,4 +1,4 @@
-export const BUILD_ID = "r6 · 02 Oct 2026 08:30 WIB";
+export const BUILD_ID = "r9 · 08 Oct 2026 11:30 WIB";
 
 export const FEATURES = {
   periodFilterNew: true,
@@ -21,6 +21,12 @@ export const FEATURES = {
   round3CustomRangePortalFix: true,
   interactiveOpenMap: true,
   upcomingPlantsKlangBatang: true,
+  customRangeTime: true,
+  customRangeCompareAllDay: true,
+  lossClarificationLookbackGate: true,
+  sectionHeadOnlyClassifiedEdit: true,
+  lossCanonicalTimestamps: true,
+  lossActionGateFix: true,
 };
 
 if (typeof window !== "undefined") {
