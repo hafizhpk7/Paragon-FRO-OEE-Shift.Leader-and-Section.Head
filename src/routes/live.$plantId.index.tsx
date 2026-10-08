@@ -25,7 +25,7 @@ import {
   StatusLegend,
 } from "@/components/oee/ui";
 import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
-import { getPlant, plantAlarms } from "@/lib/oee/data";
+import { getPlant, plantAlarms, PLANT_PHASE_LABELS } from "@/lib/oee/data";
 import { usePeriod } from "@/lib/oee/period";
 import {
   getMetrics,
@@ -80,10 +80,23 @@ function PlantView() {
     return map;
   }, [plant, plantId, resolved, tick]);
 
-  if (!plant) {
+  if (!plant || !plant.isOperational) {
     return (
-      <div className="p-6">
-        <EmptyState message="Plant tidak ditemukan" />
+      <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
+        <PageHeader
+          title={plant ? `${plant.name} — ${PLANT_PHASE_LABELS[plant.phase]}` : "Plant Not Found"}
+          crumbs={[{ label: "Kemas", to: "/live" }, { label: plant?.name ?? "Plant" }]}
+          back={{ label: "Multi Plant", to: "/live" }}
+        />
+        <main className="p-6">
+          <EmptyState
+            message={
+              plant
+                ? `${plant.name} is currently ${PLANT_PHASE_LABELS[plant.phase].toLowerCase()}. Operational data is not available yet.`
+                : "Plant tidak ditemukan"
+            }
+          />
+        </main>
       </div>
     );
   }

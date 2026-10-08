@@ -58,7 +58,7 @@ export const BOTTLENECK_BY_LINE: Record<string, string> = (() => {
 
   // For all other plants in registry (J1, J4, etc.)
   for (const plant of PLANTS) {
-    if (plant.id === "J2") continue;
+    if (plant.id === "J2" || !plant.isOperational || !plant.zones) continue;
     for (const zone of plant.zones) {
       for (const line of zone.lines) {
         const key = `${plant.id}:${line.id}`;
@@ -594,52 +594,70 @@ export function getMetrics(
         tick,
       );
     } else {
-      let sumA = 0;
-      let sumP = 0;
-      let sumQ = 0;
-      let sumOee = 0;
-      let sumCmpA = 0;
-      let sumCmpP = 0;
-      let sumCmpQ = 0;
-      let sumCmpOee = 0;
+      const targetPlant = getPlant(plantId);
+      if (targetPlant && (!targetPlant.isOperational || !zones?.length)) {
+        result = {
+          availability: 0,
+          performance: 0,
+          quality: 0,
+          oee: 0,
+          compareAvailability: 0,
+          comparePerformance: 0,
+          compareQuality: 0,
+          compareOee: 0,
+          deltaAvailability: 0,
+          deltaPerformance: 0,
+          deltaQuality: 0,
+          deltaOee: 0,
+        };
+      } else {
+        let sumA = 0;
+        let sumP = 0;
+        let sumQ = 0;
+        let sumOee = 0;
+        let sumCmpA = 0;
+        let sumCmpP = 0;
+        let sumCmpQ = 0;
+        let sumCmpOee = 0;
 
-      for (const z of zones) {
-        const zoneM = getMetrics(plantId, "zone", z.id, resolved);
-        sumA += zoneM.availability;
-        sumP += zoneM.performance;
-        sumQ += zoneM.quality;
-        sumOee += zoneM.oee;
-        sumCmpA += zoneM.compareAvailability;
-        sumCmpP += zoneM.comparePerformance;
-        sumCmpQ += zoneM.compareQuality;
-        sumCmpOee += zoneM.compareOee;
+        for (const z of zones) {
+          const zoneM = getMetrics(plantId, "zone", z.id, resolved);
+          sumA += zoneM.availability;
+          sumP += zoneM.performance;
+          sumQ += zoneM.quality;
+          sumOee += zoneM.oee;
+          sumCmpA += zoneM.compareAvailability;
+          sumCmpP += zoneM.comparePerformance;
+          sumCmpQ += zoneM.compareQuality;
+          sumCmpOee += zoneM.compareOee;
+        }
+
+        const count = zones.length || 1;
+        const a = clampPct(sumA / count);
+        const p = clampPct(sumP / count);
+        const q = clampPct(sumQ / count);
+        const oee = clampPct(sumOee / count);
+
+        const cmpA = clampPct(sumCmpA / count);
+        const cmpP = clampPct(sumCmpP / count);
+        const cmpQ = clampPct(sumCmpQ / count);
+        const cmpOee = clampPct(sumCmpOee / count);
+
+        result = {
+          availability: a,
+          performance: p,
+          quality: q,
+          oee,
+          compareAvailability: cmpA,
+          comparePerformance: cmpP,
+          compareQuality: cmpQ,
+          compareOee: cmpOee,
+          deltaAvailability: clampPct(a - cmpA),
+          deltaPerformance: clampPct(p - cmpP),
+          deltaQuality: clampPct(q - cmpQ),
+          deltaOee: clampPct(oee - cmpOee),
+        };
       }
-
-      const count = zones.length;
-      const a = clampPct(sumA / count);
-      const p = clampPct(sumP / count);
-      const q = clampPct(sumQ / count);
-      const oee = clampPct(sumOee / count);
-
-      const cmpA = clampPct(sumCmpA / count);
-      const cmpP = clampPct(sumCmpP / count);
-      const cmpQ = clampPct(sumCmpQ / count);
-      const cmpOee = clampPct(sumCmpOee / count);
-
-      result = {
-        availability: a,
-        performance: p,
-        quality: q,
-        oee,
-        compareAvailability: cmpA,
-        comparePerformance: cmpP,
-        compareQuality: cmpQ,
-        compareOee: cmpOee,
-        deltaAvailability: clampPct(a - cmpA),
-        deltaPerformance: clampPct(p - cmpP),
-        deltaQuality: clampPct(q - cmpQ),
-        deltaOee: clampPct(oee - cmpOee),
-      };
     }
   } else {
     // Group
@@ -652,7 +670,8 @@ export function getMetrics(
     let sumCmpQ = 0;
     let sumCmpOee = 0;
 
-    for (const p of PLANTS) {
+    const operationalPlants = PLANTS.filter((p) => p.isOperational);
+    for (const p of operationalPlants) {
       const plantM = getMetrics(p.id, "plant", p.id, resolved);
       sumA += plantM.availability;
       sumP += plantM.performance;
@@ -664,7 +683,7 @@ export function getMetrics(
       sumCmpOee += plantM.compareOee;
     }
 
-    const count = PLANTS.length || 1;
+    const count = operationalPlants.length || 1;
     const a = clampPct(sumA / count);
     const p = clampPct(sumP / count);
     const q = clampPct(sumQ / count);

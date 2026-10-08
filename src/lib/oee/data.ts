@@ -79,15 +79,28 @@ export type Zone = {
   lines: Line[];
 };
 
+export type PlantPhase = "operational" | "under_planning" | "under_construction";
+
+export const PLANT_PHASE_LABELS: Record<PlantPhase, string> = {
+  operational: "Operational",
+  under_planning: "Under Planning",
+  under_construction: "Under Construction",
+};
+
 export type Plant = {
   id: string;
   name: string;
   block: string;
+  coordinates: [number, number];
+  phase: PlantPhase;
+  isOperational: boolean;
+  region: string;
   oee: number;
   availability: number;
   performance: number;
   quality: number;
   zones: Zone[];
+  metrics?: null | Record<string, unknown>;
 };
 
 export type Alarm = {
@@ -259,17 +272,28 @@ function buildZone(plantId: string, zoneId: "A" | "B" | "C"): Zone {
   };
 }
 
-function buildPlant(id: string, name: string, block: string): Plant {
+function buildPlant(
+  id: string,
+  name: string,
+  block: string,
+  coordinates: [number, number],
+  region: string,
+): Plant {
   const zones = (["A", "B", "C"] as const).map((z) => buildZone(id, z));
   return {
     id,
     name,
     block,
+    coordinates,
+    phase: "operational",
+    isOperational: true,
+    region,
     zones,
     oee: avg(zones.map((z) => z.oee)),
     availability: avg(zones.map((z) => z.availability)),
     performance: avg(zones.map((z) => z.performance)),
     quality: avg(zones.map((z) => z.quality)),
+    metrics: {},
   };
 }
 
@@ -393,20 +417,67 @@ function buildJ2Plant(): Plant {
   const zones = (["A", "B", "C"] as const).map(buildJ2Zone);
   return {
     id: "J2",
-    name: "Jatake 2",
+    name: "Paragon Jatake 2",
     block: "Blok 7",
+    coordinates: [-6.184949799707473, 106.54310371083848],
+    phase: "operational",
+    isOperational: true,
+    region: "Tangerang, Banten, Indonesia",
     zones,
     oee: avg(zones.map((z) => z.oee)),
     availability: avg(zones.map((z) => z.availability)),
     performance: avg(zones.map((z) => z.performance)),
     quality: avg(zones.map((z) => z.quality)),
+    metrics: {},
   };
 }
 
 export const PLANTS: Plant[] = [
-  buildPlant("J1", "Jatake 1", "Blok 3"),
+  buildPlant(
+    "J1",
+    "Paragon Jatake 1",
+    "Blok 3",
+    [-6.185704300026386, 106.54094433967391],
+    "Tangerang, Banten, Indonesia",
+  ),
   buildJ2Plant(),
-  buildPlant("J4", "Jatake 4", "Blok 12"),
+  buildPlant(
+    "J4",
+    "Paragon Jatake 4",
+    "Blok 12",
+    [-6.188150724806095, 106.53732155079985],
+    "Tangerang, Banten, Indonesia",
+  ),
+  {
+    id: "KLANG",
+    name: "Paragon Klang",
+    block: "Malaysia",
+    coordinates: [3.0390240596644933, 101.44151455222334],
+    phase: "under_planning",
+    isOperational: false,
+    region: "Klang, Selangor, Malaysia",
+    oee: 0,
+    availability: 0,
+    performance: 0,
+    quality: 0,
+    zones: [],
+    metrics: null,
+  },
+  {
+    id: "BATANG",
+    name: "Paragon Batang",
+    block: "Central Java",
+    coordinates: [-6.9064232253866935, 109.73409916262433],
+    phase: "under_planning",
+    isOperational: false,
+    region: "Batang, Central Java, Indonesia",
+    oee: 0,
+    availability: 0,
+    performance: 0,
+    quality: 0,
+    zones: [],
+    metrics: null,
+  },
 ];
 
 /** TODO/confirm (§7 point 9): default plant hardcoded for the prototype. */
@@ -414,10 +485,10 @@ export const DEFAULT_PLANT_ID = "J2";
 export const DEFAULT_ZONE_ID = "A";
 
 export const GROUP = {
-  oee: avg(PLANTS.map((p) => p.oee)),
-  availability: avg(PLANTS.map((p) => p.availability)),
-  performance: avg(PLANTS.map((p) => p.performance)),
-  quality: avg(PLANTS.map((p) => p.quality)),
+  oee: avg(PLANTS.filter((p) => p.isOperational).map((p) => p.oee)),
+  availability: avg(PLANTS.filter((p) => p.isOperational).map((p) => p.availability)),
+  performance: avg(PLANTS.filter((p) => p.isOperational).map((p) => p.performance)),
+  quality: avg(PLANTS.filter((p) => p.isOperational).map((p) => p.quality)),
 };
 
 export function getPlant(plantId: string): Plant | undefined {
@@ -444,9 +515,11 @@ export function getMachine(
 }
 
 export function allLines(plantId?: string, zoneIds?: string[]): Line[] {
-  const plants = plantId ? PLANTS.filter((p) => p.id === plantId) : PLANTS;
+  const plants = plantId
+    ? PLANTS.filter((p) => p.id === plantId)
+    : PLANTS.filter((p) => p.isOperational);
   return plants.flatMap((p) =>
-    p.zones
+    (p.zones ?? [])
       .filter((z) => !zoneIds || zoneIds.length === 0 || zoneIds.includes(z.id))
       .flatMap((z) => z.lines),
   );
@@ -459,6 +532,7 @@ export function allSkus(lines: Line[]): string[] {
 /* ------------------------------------------------------------------ alarms */
 
 export function plantAlarms(plant: Plant): Alarm[] {
+  if (!plant.isOperational || !plant.zones?.length) return [];
   const alarms: Alarm[] = [];
   plant.zones.forEach((z) =>
     z.lines.forEach((l) => {
