@@ -82,10 +82,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Paragon OEE FRO Dashboard Prototype" },
+      { title: "OEE FRO Dashboard Prototype" },
       {
         name: "description",
-        content: "Clickable Paragon OEE FRO dashboard prototype for Shift Leader and Section Head.",
+        content: "Clickable OEE dashboard prototype for Shift Leader and Section Head.",
+      },
+      { property: "og:title", content: "OEE FRO Dashboard Prototype" },
+      {
+        property: "og:description",
+        content: "Clickable OEE dashboard prototype for Shift Leader and Section Head.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
