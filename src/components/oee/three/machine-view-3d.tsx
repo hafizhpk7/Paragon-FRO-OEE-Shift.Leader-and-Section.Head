@@ -10,6 +10,11 @@ import {
   type MachineState,
 } from "@/lib/oee/machineModels";
 import { setupStudioLightingAndEnvironment } from "@/lib/oee/three-studio-env";
+import {
+  IsoMachineScene,
+  type IsoMachineSceneHandle,
+} from "@/components/oee/three/IsoMachineScene";
+import { isIsoMachineOverridden } from "@/lib/oee/three/isoSceneConfig";
 import { useApp } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +25,98 @@ function mapDashboardStatus(status: Status): { state: MachineState; speedFactor:
   return { state: "idle", speedFactor: 0.0 };
 }
 
-export function MachineView3D({
+function Bop15MachineView3D({
+  machineCode,
+  status,
+  className,
+}: {
+  machineCode: string;
+  status: Status;
+  className?: string;
+}) {
+  const [isPlaying, setIsPlaying] = useState(true);
+  const sceneRef = useRef<IsoMachineSceneHandle>(null);
+
+  return (
+    <div
+      className={cn(
+        "relative flex h-full w-full min-h-[320px] flex-col overflow-hidden rounded-lg bg-surface/50 select-none",
+        className,
+      )}
+    >
+      <IsoMachineScene
+        ref={sceneRef}
+        mode="machine"
+        machineKey={machineCode}
+        getStatus={() => status}
+        animate={isPlaying}
+        className="h-full w-full"
+      />
+
+      {/* Top Toolbar Controls */}
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const next = !isPlaying;
+            setIsPlaying(next);
+            sceneRef.current?.setAnimate(next);
+          }}
+          className="flex items-center gap-1.5 rounded-md border border-border bg-surface/90 px-2.5 py-1 text-xs font-medium text-foreground shadow-xs backdrop-blur-md transition-colors hover:bg-muted cursor-pointer"
+        >
+          {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+          <span>{isPlaying ? "Pause" : "Play"}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => sceneRef.current?.resetView()}
+          className="flex items-center gap-1.5 rounded-md border border-border bg-surface/90 px-2.5 py-1 text-xs font-medium text-foreground shadow-xs backdrop-blur-md transition-colors hover:bg-muted cursor-pointer"
+        >
+          <RotateCcw className="size-3.5" />
+          <span>Reset</span>
+        </button>
+      </div>
+
+      {/* Bottom Status Pill */}
+      <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2">
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider shadow-xs backdrop-blur-md border border-border/80 bg-surface/90",
+            status === "running" && "text-status-running",
+            status === "slow" && "text-status-slow",
+            status === "down" && "text-status-down",
+            status === "idle" && "text-muted-foreground",
+          )}
+        >
+          <span className={cn("size-2 rounded-full", STATUS_DOT[status])} />
+          <span>{STATUS_LABEL[status]}</span>
+        </span>
+      </div>
+
+      {/* Bottom Interaction Hint: ONE hint line */}
+      <div className="absolute bottom-3 right-3 z-10 hidden sm:block text-[11px] text-muted-foreground select-none pointer-events-none bg-surface/60 px-2 py-0.5 rounded backdrop-blur-xs">
+        Scroll: zoom · Drag: pan
+      </div>
+    </div>
+  );
+}
+
+export function MachineView3D(props: {
+  machineCode: string;
+  machineName?: string;
+  status: Status;
+  className?: string;
+  plantId?: string;
+  lineId?: string;
+}) {
+  const { plantId = "J2", lineId = "BOP15", machineCode, status, className } = props;
+  if (isIsoMachineOverridden(plantId, lineId, machineCode)) {
+    return <Bop15MachineView3D machineCode={machineCode} status={status} className={className} />;
+  }
+  return <GenericMachineView3D {...props} />;
+}
+
+function GenericMachineView3D({
   machineCode,
   machineName,
   status,

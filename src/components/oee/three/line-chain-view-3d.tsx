@@ -32,6 +32,14 @@ import {
   type MachineState,
 } from "@/lib/oee/machineModels";
 import { setupStudioLightingAndEnvironment } from "@/lib/oee/three-studio-env";
+import {
+  IsoMachineScene,
+  type IsoMachineSceneHandle,
+} from "@/components/oee/three/IsoMachineScene";
+import { ISO_MODEL_OVERRIDES, isIsoModelOverridden } from "@/lib/oee/three/isoSceneConfig";
+import { selectStatus, selectMetrics } from "@/lib/oee/selectors";
+import { usePeriod } from "@/lib/oee/period";
+import { useLiveTick } from "@/lib/oee/metrics-engine";
 import { cn } from "@/lib/utils";
 
 function mapDashboardStatus(status: Status): { state: MachineState; speedFactor: number } {
@@ -41,7 +49,180 @@ function mapDashboardStatus(status: Status): { state: MachineState; speedFactor:
   return { state: "idle", speedFactor: 0.0 };
 }
 
-export function LineChainView3D({
+function Bop15LineChainView({
+  plantId,
+  zoneId,
+  line,
+  className,
+}: {
+  plantId: string;
+  zoneId: string;
+  line: Line;
+  className?: string;
+}) {
+  const navigate = useNavigate();
+  const { resolved } = usePeriod();
+  const tick = useLiveTick();
+  void tick;
+
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const sceneRef = useRef<IsoMachineSceneHandle>(null);
+
+  const override = ISO_MODEL_OVERRIDES["J2:BOP15"];
+  const machines = override.machines;
+
+  const lineStatus = selectStatus(plantId, line.id);
+
+  const getMachineStatus = React.useCallback(
+    (key: string) => {
+      void tick;
+      const shortKey = key.replace(/^BOP15-/, "");
+      return selectStatus(plantId, line.id, shortKey);
+    },
+    [plantId, line.id, tick],
+  );
+
+  return (
+    <div className={cn("relative h-full w-full select-none overflow-hidden", className)}>
+      {/* 3D Scene */}
+      <IsoMachineScene
+        ref={sceneRef}
+        mode="chain"
+        getStatus={getMachineStatus}
+        animate={isPlaying}
+        hoveredKey={hoveredKey}
+        onHover={setHoveredKey}
+        onSelect={(key) => {
+          const shortKey = key.replace(/^BOP15-/, "");
+          navigate({
+            to: "/live/$plantId/$zoneId/$lineId/$machineId",
+            params: { plantId, zoneId, lineId: line.id, machineId: shortKey },
+          });
+        }}
+        className="h-full w-full"
+      />
+
+      {/* Interactive Machine Chips Overlay */}
+      <div className="absolute inset-x-4 top-3 z-20 flex flex-wrap items-center justify-center gap-2 pointer-events-auto">
+        {machines.map((m, idx) => {
+          const isHovered = hoveredKey === m.key || hoveredKey === m.shortKey;
+          const status = selectStatus(plantId, line.id, m.shortKey);
+          const metrics = selectMetrics(plantId, "machine", m.shortKey, resolved);
+          const oee = metrics?.oee ?? 75;
+          const tier = tierOf(oee);
+
+          return (
+            <div key={m.key} className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  navigate({
+                    to: "/live/$plantId/$zoneId/$lineId/$machineId",
+                    params: {
+                      plantId,
+                      zoneId,
+                      lineId: line.id,
+                      machineId: m.shortKey,
+                    },
+                  })
+                }
+                onMouseEnter={() => setHoveredKey(m.key)}
+                onMouseLeave={() => setHoveredKey(null)}
+                className={cn(
+                  "group flex items-center gap-2 rounded-full border bg-surface/95 px-3 py-1 shadow-xs backdrop-blur-md transition-all cursor-pointer",
+                  isHovered
+                    ? "border-primary ring-2 ring-primary/20 scale-105"
+                    : "border-border/80 hover:border-foreground/50",
+                )}
+                style={{
+                  borderColor: isHovered ? "var(--primary)" : TIER_HEX[tier],
+                }}
+                title={`Click for ${m.name} telemetry`}
+              >
+                <span className={cn("size-2 rounded-full", STATUS_DOT[status])} />
+                <span className="font-mono text-xs font-bold text-foreground">{m.shortKey}</span>
+                <span
+                  data-metric={`machine-${m.shortKey}-oee`}
+                  data-raw={oee.toFixed(1)}
+                  className={cn("font-mono text-xs font-bold", TIER_TEXT[tier])}
+                >
+                  {oee.toFixed(0)}%
+                </span>
+              </button>
+
+              {idx < machines.length - 1 && (
+                <span className="text-xs font-bold text-muted-foreground/60 select-none">→</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Floating Toolbar: Exactly ONE line status pill + Controls + ONE hint line */}
+      <div className="absolute bottom-3 inset-x-3 z-20 flex items-center justify-between pointer-events-none">
+        {/* Exactly ONE status pill */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider shadow-xs backdrop-blur-md border border-border/80 bg-surface/90",
+              lineStatus === "running" && "text-status-running",
+              lineStatus === "slow" && "text-status-slow",
+              lineStatus === "down" && "text-status-down",
+              lineStatus === "idle" && "text-muted-foreground",
+            )}
+          >
+            <span className={cn("size-2 rounded-full", STATUS_DOT[lineStatus])} />
+            <span>{STATUS_LABEL[lineStatus]}</span>
+          </span>
+        </div>
+
+        {/* Right side: ONE hint line + Controls */}
+        <div className="flex items-center gap-3 pointer-events-auto">
+          <span className="hidden sm:inline-block text-[11px] text-muted-foreground font-sans select-none bg-surface/70 px-2 py-0.5 rounded backdrop-blur-xs">
+            Scroll: zoom · Drag: pan
+          </span>
+          <div className="flex items-center gap-1.5 rounded-md border border-border/80 bg-surface/90 p-1 shadow-sm backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isPlaying;
+                setIsPlaying(next);
+                sceneRef.current?.setAnimate(next);
+              }}
+              className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+              title={isPlaying ? "Pause Animation" : "Play Animation"}
+            >
+              {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => sceneRef.current?.resetView()}
+              className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+              title="Reset View"
+            >
+              <RotateCcw className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function LineChainView3D(props: {
+  plantId: string;
+  zoneId: string;
+  line: Line;
+  className?: string;
+}) {
+  if (isIsoModelOverridden(props.plantId, props.line.id)) {
+    return <Bop15LineChainView {...props} />;
+  }
+  return <GenericLineChainView3D {...props} />;
+}
+
+function GenericLineChainView3D({
   plantId,
   zoneId,
   line,

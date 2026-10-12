@@ -20,6 +20,7 @@ import {
 
 import { MachineView3D } from "@/components/oee/three/machine-view-3d";
 import { Delta, EmptyState, KpiCard, PageHeader, Panel } from "@/components/oee/ui";
+import { selectStatus } from "@/lib/oee/selectors";
 import { ActiveStopBanner } from "@/components/oee/loss/ActiveStopBanner";
 import { LossStack } from "@/components/oee/loss/LossStack";
 import { OperationalParametersTable } from "@/components/oee/loss/OperationalParametersTable";
@@ -147,9 +148,17 @@ function MachineDetail() {
     setForcedFocus("loss");
   };
 
-  // Tone color for Status card and Twin badge
-  const statusTone = snapshot.status.tone;
-  const statusLabel = snapshot.status.label;
+  // Tone color and status single-source-of-truth for Status card, Twin badge and 3D scene (§2.3)
+  const machineStatus = selectStatus(plantId, lineId, machine.id);
+  const statusTone =
+    machineStatus === "down"
+      ? "bad"
+      : machineStatus === "slow"
+        ? "warn"
+        : machineStatus === "running"
+          ? "good"
+          : "info";
+  const statusLabel = machineStatus.toUpperCase();
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
@@ -211,18 +220,15 @@ function MachineDetail() {
               <MemoizedMachineView3D
                 machineCode={machine.id}
                 machineName={machine.name}
-                status={machine.status}
+                status={machineStatus}
+                plantId={plantId}
+                lineId={lineId}
                 className="h-full w-full"
               />
             </div>
 
-            {/* Under the viewer: Interaction hint + Stops tile alone (§3.1, §3.2) */}
+            {/* Under the viewer: Stops tile alone (§3.1, §3.2) */}
             <div className="border-t border-border p-3 space-y-2 text-[11px] bg-muted/20">
-              <div className="flex items-center justify-end px-1">
-                <span className="text-[10px] text-muted-foreground font-mono">
-                  Drag: rotate · Scroll: zoom
-                </span>
-              </div>
               <div
                 className="rounded border border-border bg-surface px-3 py-2 flex items-center justify-between"
                 title={`Count of downtime and minor stop events occurred during ${
@@ -272,6 +278,8 @@ function MachineDetail() {
                 value={machineMetrics.oee.toFixed(1)}
                 unit="%"
                 delta={machineMetrics.deltaOee}
+                dataMetric={`machine-${machine.id}-oee`}
+                dataRaw={machineMetrics.oee.toFixed(1)}
               />
 
               {/* Card 2: Availability */}

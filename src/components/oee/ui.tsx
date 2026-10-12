@@ -340,6 +340,8 @@ export function KpiCard({
   isUpdating = false,
   onClick,
   className,
+  dataMetric,
+  dataRaw,
 }: {
   label: string;
   value: string | number;
@@ -354,6 +356,8 @@ export function KpiCard({
   isUpdating?: boolean;
   onClick?: () => void;
   className?: string;
+  dataMetric?: string;
+  dataRaw?: string | number;
 }) {
   const toneClass =
     tone === "good"
@@ -379,6 +383,14 @@ export function KpiCard({
       </div>
       <div className="relative flex items-baseline gap-1">
         <span
+          data-metric={dataMetric}
+          data-raw={
+            dataRaw !== undefined
+              ? String(dataRaw)
+              : typeof value === "number" || (!isNaN(Number(value)) && String(value).trim() !== "")
+                ? String(value)
+                : undefined
+          }
           className={cn(
             "rounded px-1 -mx-1 font-mono text-2xl font-semibold leading-none transition-all duration-300",
             toneClass,

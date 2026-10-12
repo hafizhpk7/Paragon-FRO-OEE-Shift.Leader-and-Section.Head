@@ -832,7 +832,32 @@ export function getDeterministicMachineStatus(machineKey: string): {
   let performance = 0;
   let quality = 0;
 
-  if (
+  if (machineKey.includes("BOP15-LBF15-3")) {
+    status = "down";
+    availability = 46.2;
+    performance = 72.8;
+    quality = 98.2;
+  } else if (machineKey.includes("BOP15-LBC")) {
+    status = "slow";
+    availability = 77.0;
+    performance = 77.5;
+    quality = 98.9;
+  } else if (machineKey.includes("BOP15-LBF15-2")) {
+    status = "running";
+    availability = 88.5;
+    performance = 85.0;
+    quality = 98.4;
+  } else if (machineKey.includes("BOP15-LBF15-1")) {
+    status = "running";
+    availability = 92.0;
+    performance = 89.5;
+    quality = 98.4;
+  } else if (machineKey.includes("BOP15-LCM")) {
+    status = "running";
+    availability = 87.5;
+    performance = 85.0;
+    quality = 98.2;
+  } else if (
     machineKey.includes("TUP01-LRP01") ||
     machineKey.includes("TUP06-LCM01") ||
     machineKey.includes("TUP08-LCM02") ||
