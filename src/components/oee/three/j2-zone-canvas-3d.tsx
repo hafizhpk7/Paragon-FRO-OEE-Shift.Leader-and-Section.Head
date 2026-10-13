@@ -12,6 +12,8 @@ import {
   type ModelInstance,
 } from "@/lib/oee/models";
 import { setupStudioLightingAndEnvironment } from "@/lib/oee/three-studio-env";
+import { createBop15ChainGroup } from "@/lib/oee/three/bop15Models";
+import { selectStatus } from "@/lib/oee/selectors";
 
 export function J2ZoneCanvas3D({
   zone,
@@ -39,7 +41,7 @@ export function J2ZoneCanvas3D({
   const modelInstancesRef = useRef<
     Map<
       string,
-      { instance: ModelInstance; plateMesh: THREE.Mesh; lineCode: string; machineCode: string }
+      { instance: any; plateMesh?: THREE.Mesh; lineCode: string; machineCode: string }
     >
   >(new Map());
   const animFrameRef = useRef<number | null>(null);
@@ -99,11 +101,23 @@ export function J2ZoneCanvas3D({
     // Build machines for this zone
     const instances = new Map<
       string,
-      { instance: ModelInstance; plateMesh: THREE.Mesh; lineCode: string; machineCode: string }
+      { instance: any; plateMesh?: THREE.Mesh; lineCode: string; machineCode: string }
     >();
 
     linesForZone.forEach((lineCfg) => {
       const isRtl = lineCfg.flowDirection === "right-to-left";
+      
+      if (lineCfg.code === "BOP15") {
+        const bop15Group = createBop15ChainGroup((key) => selectStatus("J2", "BOP15", key));
+        const bx = lineCfg.zoneViewLayout.x * 1.6 - 12;
+        const bz = lineCfg.zoneViewLayout.y * 1.6 - 18;
+        bop15Group.position.set(bx, 0, bz);
+        if (isRtl) bop15Group.rotation.y = Math.PI;
+        scene.add(bop15Group);
+        instances.set("BOP15-CHAIN", { instance: bop15Group, lineCode: "BOP15", machineCode: "" });
+        return;
+      }
+
       const lineData = zone.lines.find((l) => l.id === lineCfg.code);
 
       lineCfg.machines.forEach((mCfg, mIdx) => {
@@ -115,18 +129,20 @@ export function J2ZoneCanvas3D({
         const status = machineData?.status ?? "running";
 
         try {
-          const modelInst = buildMachineModel(modelKey, {
-            lod: 1,
-            seed: mIdx * 60 + 23,
-            status,
-          });
+          const modelInst = lineCfg.code === "BOP15" 
+            ? createBop15ModelInstance(mCfg.type ?? "LBF", status)
+            : buildMachineModel(modelKey, {
+                lod: 1,
+                seed: mIdx * 60 + 23,
+                status,
+              });
 
           // Normalize scale
           const bounds = modelInst.getBounds();
           const sizeX = Math.max(0.1, bounds.max.x - bounds.min.x);
           const sizeZ = Math.max(0.1, bounds.max.z - bounds.min.z);
           const maxDim = Math.max(sizeX, sizeZ);
-          const scaleFactor = Math.min(1.0, (CELL_SIZE_ZONE * 0.72) / maxDim);
+          const scaleFactor = Math.min(1.0, (CELL_SIZE_ZONE * (lineCfg.code === "BOP15" ? 0.6 : 0.72)) / maxDim);
           modelInst.group.scale.setScalar(scaleFactor);
 
           // Position
@@ -268,10 +284,27 @@ export function J2ZoneCanvas3D({
 
       let animatedCount = 0;
       instances.forEach(({ instance, lineCode }) => {
-        const isLineHovered = hoveredLineCode === lineCode;
-        if (isLineHovered || animatedCount < MAX_ANIMATED_MACHINES) {
-          instance.update(dt, now / 1000);
-          animatedCount++;
+        // Simple update: if it has an update method (ModelInstance), call it.
+        // If it's the BOP15 group, we need to update lamps.
+        if (instance.update) {
+           const isLineHovered = hoveredLineCode === lineCode;
+           if (isLineHovered || animatedCount < MAX_ANIMATED_MACHINES) {
+             instance.update(dt, now / 1000);
+             animatedCount++;
+           }
+        } else if (instance.userData?.registry) {
+           // BOP15 group: update lamps based on status
+           instance.userData.registry.forEach((entry: any) => {
+             const status = selectStatus("J2", "BOP15", entry.key.replace("BOP15-", ""));
+             const pattern = [0, 0, 0]; // simplified lamp pattern
+             if (status === "running") pattern[2] = 1;
+             else if (status === "slow") { pattern[1] = 1; pattern[2] = 1; }
+             else if (status === "down") pattern[0] = 1;
+
+             entry.lamps.forEach((mat: THREE.MeshBasicMaterial, i: number) => {
+               mat.color.set(pattern[i] ? [0xe24b4a, 0xf5a623, 0x2ecc71][i] : 0x222222);
+             });
+           });
         }
       });
 
@@ -287,7 +320,19 @@ export function J2ZoneCanvas3D({
       canvas.removeEventListener("mousemove", onPointerMove);
       canvas.removeEventListener("click", onClick);
 
-      instances.forEach(({ instance }) => instance.dispose());
+      instances.forEach(({ instance }) => {
+        if (instance.dispose) instance.dispose();
+        else if (instance.children) {
+             // Dispose BOP15 group
+             instance.traverse((child: any) => {
+               if (child.geometry) child.geometry.dispose();
+               if (child.material) {
+                 if (Array.isArray(child.material)) child.material.forEach((m: any) => m.dispose());
+                 else child.material.dispose();
+               }
+             });
+        }
+      });
       studioLights.dispose();
       renderer.dispose();
     };

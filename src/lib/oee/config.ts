@@ -59,6 +59,13 @@ export const STATUS_DOT: Record<Status, string> = {
   idle: "bg-status-idle",
 };
 
+export const STATUS_LAMP_MAP: Record<Status, string> = {
+  running: "green",
+  slow: "amber",
+  down: "red",
+  idle: "off",
+};
+
 /** Machine Informations sensor spec (§4.1.5). */
 export type SensorSpec = {
   key: string;

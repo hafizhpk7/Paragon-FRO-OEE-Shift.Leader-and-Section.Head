@@ -32,6 +32,7 @@ import {
 import { MODEL_REGISTRY, resolveModelKey } from "@/lib/oee/models";
 import { cn } from "@/lib/utils";
 import { MapStatusLegendOverlay, ZoomableMap } from "./iso";
+import { Bop15ChainSprite } from "./bop15-chain-sprite";
 
 // Global constant to toggle subtle process flow direction arrows/chevrons
 export const SHOW_FLOW_CHEVRONS = true;
@@ -423,6 +424,45 @@ export function J2PlantZoneMap({
                 const isDimmed =
                   (hoveredZoneId && hoveredZoneId !== lineCfg.zoneId) ||
                   (hoveredLineCode && !isLineHovered);
+
+                if (lineCfg.code === "BOP15") {
+                  return (
+                    <Bop15ChainSprite
+                      key={`blocks-${lineCfg.code}`}
+                      layoutX={lineCfg.layout.x}
+                      layoutY={lineCfg.layout.y}
+                      blockW={PLANT_BLOCK_SIZE.w}
+                      blockD={PLANT_BLOCK_SIZE.d}
+                      gap={PLANT_MACHINE_GAP}
+                      isoScale={PLANT_ISO_SCALE}
+                      statusSource={(code) =>
+                        line?.machines.find((m) => m.code === code || m.id === code)?.status ?? "running"
+                      }
+                      hoveredMachine={
+                        hoveredMachine?.lineCode === "BOP15" ? hoveredMachine.machineCode : null
+                      }
+                      selectedMachine={null}
+                      onMachineHover={(mCode, e) => {
+                        if (mCode) {
+                          const m = line?.machines.find((m) => m.code === mCode || m.id === mCode);
+                          handleMachineHover(
+                            e ?? ({ clientX: 0, clientY: 0 } as any),
+                            lineCfg,
+                            m,
+                            mCode,
+                            zone,
+                            line,
+                          );
+                        } else {
+                          handleLineLeave();
+                        }
+                      }}
+                      onMachineClick={() => handleZoneClick(lineCfg.zoneId)}
+                      onLineLeave={handleLineLeave}
+                      isDimmed={isDimmed}
+                    />
+                  );
+                }
 
                 return (
                   <g key={`blocks-${lineCfg.code}`} opacity={isDimmed ? 0.35 : 1}>
@@ -1174,6 +1214,55 @@ export function J2ZoneProductionFloorMap({
                 const isDimmed = hoveredLineCode && !isLineHovered;
                 const isRtl = lineCfg.flowDirection === "right-to-left";
 
+                if (lineCfg.code === "BOP15") {
+                  return (
+                    <Bop15ChainSprite
+                      key={`zone-blocks-${lineCfg.code}`}
+                      layoutX={lineCfg.zoneViewLayout.x}
+                      layoutY={lineCfg.zoneViewLayout.y}
+                      blockW={ZONE_BLOCK_SIZE.w}
+                      blockD={ZONE_BLOCK_SIZE.d}
+                      gap={MACHINE_GAP}
+                      isoScale={ZONE_ISO_SCALE}
+                      statusSource={(code) =>
+                        line?.machines.find((m) => m.code === code || m.id === code)?.status ?? "running"
+                      }
+                      hoveredMachine={
+                        hoveredMachine?.lineCode === "BOP15" ? hoveredMachine.machineCode : null
+                      }
+                      selectedMachine={selectedMachineId}
+                      onMachineHover={(mCode, e) => {
+                        if (mCode) {
+                          handleLineEnter(lineCfg.code);
+                          const m = line?.machines.find((m) => m.code === mCode || m.id === mCode);
+                          const machineM = getMetrics(plantId, "machine", mCode, resolved);
+                          const lineM = getMetrics(plantId, "line", lineCfg.code, resolved);
+                          const rect = containerRef.current?.getBoundingClientRect();
+                          if (rect && e) {
+                            setHoveredMachine({
+                              lineCode: lineCfg.code,
+                              machineCode: mCode,
+                              machineName: m?.name ?? mCode,
+                              zoneId: zone.id,
+                              zoneName: zone.name,
+                              lineOee: lineM.oee,
+                              machineOee: machineM.oee,
+                              machineStatus: m?.status ?? "running",
+                              clientX: e.clientX - rect.left,
+                              clientY: e.clientY - rect.top,
+                            });
+                          }
+                        } else {
+                          handleLineLeave();
+                        }
+                      }}
+                      onMachineClick={(mCode) => handleMachineClick(lineCfg.code, mCode)}
+                      onLineLeave={handleLineLeave}
+                      isDimmed={isDimmed}
+                    />
+                  );
+                }
+
                 return (
                   <g key={`zone-blocks-${lineCfg.code}`} opacity={isDimmed ? 0.35 : 1}>
                     {lineCfg.machines.map((mCfg, mIdx) => {
@@ -1436,28 +1525,62 @@ export function J2ZoneProductionFloorMap({
           <svg viewBox="0 0 920 680" className="h-full w-full bg-grid/10 select-none" role="img">
             {linesForZone.map((lineCfg) => {
               const line = zone.lines.find((l) => l.id === lineCfg.code);
-              const scaleX = 44;
-              const scaleY = 20;
-              const offsetX = 65;
-              const offsetY = 36;
 
-              const lineM = getMetrics(plantId, "line", lineCfg.code, resolved);
-              const lineOee = lineM.oee;
-              const lineTier = tierOf(lineOee);
-
-              const isLeft = lineCfg.labelSide === "left";
-              const labelX = isLeft
-                ? (lineCfg.zoneViewLayout.x - 1.4) * scaleX + offsetX
-                : (lineCfg.zoneViewLayout.x + (lineCfg.machines.length - 1) * MACHINE_GAP + 1.4) *
-                    scaleX +
-                  offsetX;
-              const labelY = lineCfg.zoneViewLayout.y * scaleY + offsetY;
-
+              if (lineCfg.code === "BOP15") {
+                return (
+                    <Bop15ChainSprite
+                        key={`2d-zone-line-${lineCfg.code}`}
+                        layoutX={lineCfg.zoneViewLayout.x}
+                        layoutY={lineCfg.zoneViewLayout.y}
+                        blockW={ZONE_BLOCK_SIZE.w}
+                        blockD={ZONE_BLOCK_SIZE.d}
+                        gap={MACHINE_GAP}
+                        isoScale={ZONE_ISO_SCALE}
+                        statusSource={(code) => line?.machines.find(m => m.code === code || m.id === code)?.status ?? "running"}
+                        hoveredMachine={hoveredMachine?.lineCode === "BOP15" ? hoveredMachine.machineCode : null}
+                        selectedMachine={null}
+                        onMachineHover={(mCode) => {
+                             if (mCode) {
+                                 const m = line?.machines.find(m => m.code === mCode || m.id === mCode);
+                                 const rect = containerRef.current?.getBoundingClientRect();
+                                 if (rect) {
+                                    setHoveredMachine({
+                                      lineCode: lineCfg.code,
+                                      machineCode: mCode,
+                                      machineName: m?.name ?? mCode,
+                                      zoneId: zone.id,
+                                      zoneName: zone.name,
+                                      lineOee: getMetrics(plantId, "line", lineCfg.code, resolved).oee,
+                                      machineOee: getMetrics(plantId, "machine", mCode, resolved).oee,
+                                      machineStatus: m?.status ?? "running",
+                                      clientX: 0,
+                                      clientY: 0,
+                                    });
+                                 }
+                             } else {
+                                 handleLineLeave();
+                             }
+                        }}
+                        onMachineClick={(mCode) => handleMachineClick(lineCfg.code, mCode)}
+                        onLineLeave={handleLineLeave}
+                        isDimmed={false}
+                    />
+                );
+              }
+              
               return (
                 <g key={`2d-zone-line-${lineCfg.code}`}>
                   {/* Line Pill */}
                   <g
-                    transform={`translate(${labelX}, ${labelY})`}
+                    transform={`translate(${
+                      (lineCfg.labelSide === "left"
+                        ? (lineCfg.zoneViewLayout.x - 1.4) * 44 + 65
+                        : (lineCfg.zoneViewLayout.x +
+                            (lineCfg.machines.length - 1) * MACHINE_GAP +
+                            1.4) *
+                            44 +
+                          65)
+                    }, ${lineCfg.zoneViewLayout.y * 20 + 36})`}
                     className="cursor-pointer"
                     onClick={() => handleLinePillClick(lineCfg.code)}
                   >
@@ -1468,7 +1591,7 @@ export function J2ZoneProductionFloorMap({
                       height={20}
                       rx={10}
                       fill="var(--surface)"
-                      stroke={TIER_HEX[lineTier]}
+                      stroke={TIER_HEX[tierOf(getMetrics(plantId, "line", lineCfg.code, resolved).oee)]}
                       strokeWidth={1.4}
                     />
                     <text
@@ -1489,10 +1612,10 @@ export function J2ZoneProductionFloorMap({
                     const status = machine?.status ?? "running";
 
                     const blockX =
-                      (lineCfg.zoneViewLayout.x + (mCfg.offsetX ?? mIdx * MACHINE_GAP)) * scaleX +
-                      offsetX;
+                      (lineCfg.zoneViewLayout.x + (mCfg.offsetX ?? mIdx * MACHINE_GAP)) * 44 +
+                      65;
                     let blockY =
-                      (lineCfg.zoneViewLayout.y + (mCfg.offsetY ?? 0)) * scaleY + offsetY;
+                      (lineCfg.zoneViewLayout.y + (mCfg.offsetY ?? 0)) * 20 + 36;
                     if (mCfg.subRow === "top") blockY -= 15;
 
                     const isHovered =

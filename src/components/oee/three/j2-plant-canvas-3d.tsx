@@ -11,6 +11,7 @@ import {
   type ModelInstance,
 } from "@/lib/oee/models";
 import { setupStudioLightingAndEnvironment } from "@/lib/oee/three-studio-env";
+import { createBop15ModelInstance } from "@/lib/oee/models/bop15Adapter";
 
 export function J2PlantCanvas3D({
   plant,
@@ -37,7 +38,7 @@ export function J2PlantCanvas3D({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const modelInstancesRef = useRef<Map<string, { instance: ModelInstance; plateMesh: THREE.Mesh }>>(
+  const modelInstancesRef = useRef<Map<string, { instance: any; plateMesh: THREE.Mesh }>>(
     new Map(),
   );
   const animFrameRef = useRef<number | null>(null);
@@ -124,6 +125,19 @@ export function J2PlantCanvas3D({
 
     J2_LINES_CONFIG.forEach((lineCfg) => {
       const isRtl = lineCfg.flowDirection === "right-to-left";
+
+      if (lineCfg.code === "BOP15") {
+        const bop15Group = createBop15ChainGroup((key) => "running");
+        const bx = lineCfg.layout.x * 1.5 - 10;
+        const bz = lineCfg.layout.y * 1.5 - 12;
+        bop15Group.position.set(bx, 0, bz);
+        if (isRtl) bop15Group.rotation.y = Math.PI;
+        scene.add(bop15Group);
+        // Add hit proxy for BOP15 chain to instances for interaction
+        instances.set("BOP15-CHAIN", { instance: bop15Group, plateMesh: new THREE.Mesh() });
+        return;
+      }
+
       const lineOee = lineOeeMap.current.get(lineCfg.code) ?? 65;
       const plateColor = TIER_HEX[tierOf(lineOee)];
 
@@ -133,10 +147,10 @@ export function J2PlantCanvas3D({
 
         try {
           const modelInst = buildMachineModel(modelKey, {
-            lod: 0,
-            seed: mIdx * 50 + 13,
-            status: "running",
-          });
+                lod: 0,
+                seed: mIdx * 50 + 13,
+                status: "running",
+              });
 
           // Normalize size
           const bounds = modelInst.getBounds();
