@@ -1,4 +1,4 @@
-export const BUILD_ID = "r11 · 12 Oct 2026 14:35 WIB";
+export const BUILD_ID = "r13 · 12 Oct 2026 18:00 WIB";
 
 export const FEATURES = {
   periodFilterNew: true,
@@ -29,6 +29,7 @@ export const FEATURES = {
   lossActionGateFix: true,
   bop15Iso3D: true,
   bop15Iso3DIntegration: true,
+  productionBlankScreenFix: true,
 };
 
 if (typeof window !== "undefined") {

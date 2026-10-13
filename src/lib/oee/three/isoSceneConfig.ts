@@ -15,11 +15,11 @@ export interface BOP15MachineMeta {
 }
 
 export const BOP15_MACHINES: readonly BOP15MachineMeta[] = [
-  { key: "BOP15-LBF15-3", shortKey: "LBF15-3", name: "LBF15-3", type: "LBF", defaultOee: 33 },
+  { key: "BOP15-LBF15-3", shortKey: "LBF15-3", name: "LBF15-3", type: "LBF", defaultOee: 81 },
   { key: "BOP15-LBF15-2", shortKey: "LBF15-2", name: "LBF15-2", type: "LBF", defaultOee: 74 },
   { key: "BOP15-LBF15-1", shortKey: "LBF15-1", name: "LBF15-1", type: "LBF", defaultOee: 81 },
   { key: "BOP15-LBC", shortKey: "LBC", name: "LBC", type: "LBC", defaultOee: 59 },
-  { key: "BOP15-LCM", shortKey: "LCM", name: "LCM", type: "LCM", defaultOee: 73 },
+  { key: "BOP15-LCM", shortKey: "LCM", name: "LCM", type: "LCM", defaultOee: 33 },
 ] as const;
 
 export const LAMP_COLORS = [0xe24b4a, 0xf5a623, 0x2ecc71] as const; // red, amber, green
@@ -73,7 +73,9 @@ export interface StackLightMesh {
  * Default false in production builds, true in development.
  */
 export const DEBUG_ISO =
-  process.env.NODE_ENV !== "production" ||
+  (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") ||
+  (typeof import.meta !== "undefined" &&
+    Boolean((import.meta as { env?: { DEV?: boolean } })?.env?.DEV)) ||
   (typeof window !== "undefined" && window.location.search.includes("debug=1"));
 
 export interface IsoMachineOverrideMeta {

@@ -1,6 +1,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { IsoScene, type IsoStatus } from "@/lib/oee/three/isoScene";
 import { BOP15_MACHINES, STATUS_DISPLAY_INFO } from "@/lib/oee/three/isoSceneConfig";
+import { ErrorBoundary } from "@/components/oee/error-boundary";
 import { useApp } from "@/lib/oee/app-context";
 import { cn } from "@/lib/utils";
 
@@ -93,8 +94,8 @@ function IsoStaticFallback({
   );
 }
 
-export const IsoMachineScene = forwardRef<IsoMachineSceneHandle, IsoMachineSceneProps>(
-  function IsoMachineScene(
+const IsoMachineSceneInner = forwardRef<IsoMachineSceneHandle, IsoMachineSceneProps>(
+  function IsoMachineSceneInner(
     {
       mode,
       machineKey,
@@ -260,6 +261,26 @@ export const IsoMachineScene = forwardRef<IsoMachineSceneHandle, IsoMachineScene
           />
         )}
       </div>
+    );
+  },
+);
+
+export const IsoMachineScene = forwardRef<IsoMachineSceneHandle, IsoMachineSceneProps>(
+  function IsoMachineScene(props, ref) {
+    return (
+      <ErrorBoundary
+        fallback={
+          <IsoStaticFallback
+            mode={props.mode}
+            machineKey={props.machineKey}
+            getStatus={props.getStatus || (() => "running")}
+            selectedKey={props.selectedKey}
+            onSelect={props.onSelect}
+          />
+        }
+      >
+        <IsoMachineSceneInner ref={ref} {...props} />
+      </ErrorBoundary>
     );
   },
 );

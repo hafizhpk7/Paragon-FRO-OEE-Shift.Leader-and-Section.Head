@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node scripts/prod-server.js",
     "dev": "vite dev --host 0.0.0.0 --port 3000",
-    "build": "rm -rf node_modules/.nitro .output dist && NODE_ENV=production vite build && node scripts/copy-build-artifacts.js",
+    "build": "rm -rf dist && vite build && node scripts/copy-build-artifacts.js",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
@@ -46,8 +46,6 @@
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-router": "1.170.18",
-    "@tanstack/react-start": "1.168.32",
-    "@tanstack/router-plugin": "1.168.23",
     "@tanstack/zod-adapter": "^1.167.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

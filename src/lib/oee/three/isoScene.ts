@@ -821,15 +821,21 @@ export class IsoScene {
   // ==========================================
 
   private pick(e: PointerEvent): string | null {
+    if (!this.canvas) return null;
     const rect = this.canvas.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
     const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
-    const proxies = Object.values(this.registry).map((r) => r.proxy);
+    const proxies = Object.values(this.registry)
+      .map((r) => r?.proxy)
+      .filter((p): p is THREE.Mesh => Boolean(p));
+    if (proxies.length === 0) return null;
+
     const hits = this.raycaster.intersectObjects(proxies, false);
 
-    if (hits.length > 0) {
+    if (hits.length > 0 && hits[0]?.object?.userData) {
       return hits[0].object.userData.machineKey || null;
     }
     return null;

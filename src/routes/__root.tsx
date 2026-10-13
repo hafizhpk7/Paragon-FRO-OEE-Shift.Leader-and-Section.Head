@@ -1,15 +1,12 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
   createRootRouteWithContext,
   useRouter,
-  HeadContent,
-  Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
 
-import appCss from "../styles.css?url";
 import { AppSidebar } from "@/components/oee/app-sidebar";
 import { AppProvider, useApp } from "@/lib/oee/app-context";
 import { Toaster } from "@/components/ui/sonner";
@@ -78,40 +75,6 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "OEE FRO Dashboard Prototype" },
-      {
-        name: "description",
-        content: "Clickable OEE dashboard prototype for Shift Leader and Section Head.",
-      },
-      { property: "og:title", content: "OEE FRO Dashboard Prototype" },
-      {
-        property: "og:description",
-        content: "Clickable OEE dashboard prototype for Shift Leader and Section Head.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
-      },
-      { rel: "icon", href: "/favicon.ico", sizes: "any" },
-      { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32x32.png" },
-      { rel: "icon", type: "image/png", sizes: "16x16", href: "/favicon-16x16.png" },
-      { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
-    ],
-  }),
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
   errorComponent: ErrorComponent,
@@ -119,6 +82,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  void queryClient;
 
   useEffect(() => {
     const handleWindowError = (event: ErrorEvent) => {
@@ -148,19 +112,9 @@ function RootComponent() {
   }, []);
 
   return (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <QueryClientProvider client={queryClient}>
-          <AppProvider>
-            <DashboardShell />
-          </AppProvider>
-        </QueryClientProvider>
-        <Scripts />
-      </body>
-    </html>
+    <AppProvider>
+      <DashboardShell />
+    </AppProvider>
   );
 }
 
@@ -176,7 +130,6 @@ function DashboardShell() {
           isCollapsed ? "lg:ml-20" : "lg:ml-64",
         )}
       >
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
       </div>
       <Toaster position={TOAST_POSITION} richColors closeButton duration={5000} />

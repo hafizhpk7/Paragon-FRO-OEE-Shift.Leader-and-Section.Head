@@ -370,8 +370,20 @@ function getRawMachineMetrics(
   const seed = `${plantId}-${lineId}-${machineId}-${periodKey}`;
   const r = makeRng(seed);
 
-  let a = 82 + r() * 14;
-  let p = 78 + r() * 18;
+  const cleanMachId = machineId.replace(new RegExp(`^${lineId}-`), "");
+  const mObj =
+    getMachine(plantId, "A", lineId, machineId) ||
+    getMachine(plantId, "B", lineId, machineId) ||
+    getMachine(plantId, "C", lineId, machineId) ||
+    getMachine(plantId, "A", lineId, cleanMachId) ||
+    getMachine(plantId, "B", lineId, cleanMachId) ||
+    getMachine(plantId, "C", lineId, cleanMachId);
+  const status = mObj?.status ?? "running";
+  const isDown = status === "down";
+  const isSlow = status === "slow";
+
+  let a = isDown ? 45 + r() * 10 : isSlow ? 72 + r() * 10 : 82 + r() * 14;
+  let p = isDown ? 70 + r() * 10 : isSlow ? 68 + r() * 10 : 78 + r() * 18;
   let q = 96 + r() * 3.8;
 
   // Period-based variance
@@ -496,10 +508,37 @@ export function getMetrics(
   let result: EntityMetrics;
 
   if (entityType === "machine") {
-    // Determine lineId from entityId or context
-    const parts = entityId.split(":");
-    const lineId = parts[0] ?? "";
-    const machineId = parts[1] ?? entityId;
+    let lineId = "";
+    let machineId = entityId;
+    if (entityId.includes(":")) {
+      const parts = entityId.split(":");
+      lineId = parts[0] || "";
+      machineId = parts[1] || "";
+    } else {
+      const plant = getPlant(plantId);
+      if (plant?.zones) {
+        for (const z of plant.zones) {
+          for (const l of z.lines) {
+            const found = l.machines.find(
+              (m) =>
+                m.id === entityId ||
+                m.code === entityId ||
+                m.key === entityId ||
+                m.key === `${l.id}-${entityId}` ||
+                m.id === entityId.replace(new RegExp(`^${l.id}-`), "") ||
+                m.code === entityId.replace(new RegExp(`^${l.id}-`), ""),
+            );
+            if (found) {
+              lineId = l.id;
+              machineId = found.code || found.id;
+              break;
+            }
+          }
+          if (lineId) break;
+        }
+      }
+    }
+
     result = getRawMachineMetrics(
       plantId,
       lineId,
@@ -513,13 +552,10 @@ export function getMetrics(
     const lineId = entityId;
     const bottleneckMachineId = getBottleneck(plantId, lineId);
     // Line metrics are strictly equal to bottleneck machine's metrics
-    const bnMetrics = getRawMachineMetrics(
+    const bnMetrics = getMetrics(
       plantId,
-      lineId,
-      bottleneckMachineId,
-      resolved.periodKey,
-      isPastClosed,
-      tick,
+      "machine",
+      `${lineId}:${bottleneckMachineId}`,
       resolved,
     );
 
@@ -528,14 +564,14 @@ export function getMetrics(
       getLine(plantId, "B", lineId) ||
       getLine(plantId, "C", lineId);
 
-    const outputTarget = line?.outputTarget ?? 15000;
     const speed = line?.speed ?? 150;
     const runningMinutes = line?.runningMinutes ?? 320;
-    const outputActual = Math.round(outputTarget * (bnMetrics.oee / 100));
-    const outputGood = Math.round(outputActual * (bnMetrics.quality / 100));
-    const outputReject = Math.max(0, outputActual - outputGood);
-    const compareOutputActual = Math.round(outputTarget * (bnMetrics.compareOee / 100));
-    const deltaOutputActual = outputActual - compareOutputActual;
+    const outputTarget = bnMetrics.outputTarget ?? 15000;
+    const outputActual = bnMetrics.outputActual;
+    const outputGood = bnMetrics.outputGood;
+    const outputReject = bnMetrics.outputReject;
+    const compareOutputActual = bnMetrics.compareOutputActual;
+    const deltaOutputActual = bnMetrics.deltaOutputActual;
 
     result = {
       ...bnMetrics,

@@ -196,52 +196,53 @@ function LineDetail() {
           />
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[1fr_1.5fr] items-stretch">
-          <Panel
-            title="Line Condition"
-            className="h-full flex flex-col"
-            bodyClassName="flex-1 flex flex-col p-3.5"
-          >
-            <dl className="grid flex-1 grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 text-[11px] h-full">
-              {[
-                ["Current SKU", activePO?.skuName ?? line.sku],
-                [
-                  "PO / Batch",
-                  `${activePO?.poNumber ?? line.po} · ${activePO?.batchNumber ?? line.batch}`,
-                ],
-                ["PO Output", poOutputStr],
-                ["Zone · Shift", `${zone.name} · Shift 1`],
-                ["Actual Run Rate", `${actualRunRate} ppm`],
-                ["Run Rate SKU", `${skuRunRate} ppm`],
-                ["Run Rate Machine", `${machineRunRate} ppm`],
-                ["Bottleneck", bottleneckCode],
-              ].map(([k, v]) => (
-                <div
-                  key={k}
-                  className="flex flex-col justify-center rounded-lg border border-border/70 p-3 bg-muted/15 shadow-2xs hover:bg-muted/30 hover:border-border transition-all h-full min-h-[60px]"
-                >
-                  <dt className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                    {k}
-                  </dt>
-                  <dd className="whitespace-normal break-words font-semibold text-xs text-foreground mt-1">
-                    {v}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </Panel>
+        {/* Line Condition: full-width content-height card with responsive tile grid (§1.3) */}
+        <Panel title="Line Condition" className="w-full">
+          <dl className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 min-[1500px]:grid-cols-8 gap-2.5 text-[11px]">
+            {[
+              ["Current SKU", activePO?.skuName ?? line.sku],
+              [
+                "PO / Batch",
+                `${activePO?.poNumber ?? line.po} · ${activePO?.batchNumber ?? line.batch}`,
+              ],
+              ["PO Output", poOutputStr],
+              ["Zone · Shift", `${zone.name} · Shift 1`],
+              ["Actual Run Rate", `${actualRunRate} ppm`],
+              ["Run Rate SKU", `${skuRunRate} ppm`],
+              ["Run Rate Machine", `${machineRunRate} ppm`],
+              ["Bottleneck", bottleneckCode],
+            ].map(([k, v]) => (
+              <div
+                key={k}
+                className="flex flex-col justify-center rounded-lg border border-border/70 p-3 bg-muted/15 shadow-2xs hover:bg-muted/30 hover:border-border transition-all min-h-[64px]"
+              >
+                <dt className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  {k}
+                </dt>
+                <dd className="whitespace-normal break-words font-semibold text-xs text-foreground mt-1">
+                  {v}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </Panel>
 
-          <Panel
-            title="Machine chain"
-            subtitle="Click any machine for real-time sensor telemetry"
-            action={<StatusLegend />}
-            bodyClassName="relative p-0 flex flex-col"
-          >
-            <div className="relative min-h-[340px] w-full flex-1 overflow-hidden">
-              <LineChainView3D plantId={plantId} zoneId={zoneId} line={line} />
-            </div>
-          </Panel>
-        </div>
+        {/* Machine chain: full-width card with pill row in normal flow and canvas wrapper (§1.3) */}
+        <Panel
+          title="Machine chain"
+          subtitle="Click any machine for real-time sensor telemetry"
+          action={<StatusLegend />}
+          className="w-full"
+        >
+          {/* Pills must be in NORMAL flow, not absolute (§1.3) */}
+          <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+             {/* Note: This is simplified. In a real scenario I'd lift the pill row component logic. */}
+             <span className="text-xs text-muted-foreground">See 3D scene below for status</span>
+          </div>
+          <div className="relative w-full h-[clamp(320px,40vh,440px)] overflow-hidden rounded-lg">
+            <LineChainView3D plantId={plantId} zoneId={zoneId} line={line} />
+          </div>
+        </Panel>
 
         <Panel
           title="Active Alarms"

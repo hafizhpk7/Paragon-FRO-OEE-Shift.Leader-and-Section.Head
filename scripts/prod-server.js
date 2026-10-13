@@ -38,6 +38,18 @@ const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   let pathname = decodeURIComponent(parsedUrl.pathname);
 
+  // Serve a valid no-op service worker for _service-worker.js to prevent MIME type / registration security errors
+  if (pathname === "/_service-worker.js") {
+    res.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "no-cache",
+    });
+    res.end(
+      "self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));",
+    );
+    return;
+  }
+
   let filePath = path.join(distDir, pathname);
 
   // Prevent directory traversal
@@ -65,6 +77,13 @@ const server = http.createServer((req, res) => {
       "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
     });
     fs.createReadStream(filePath).pipe(res);
+    return;
+  }
+
+  // If request pathname has a file extension (e.g. .js, .css, .map), do not fall back to index.html
+  if (path.extname(pathname) !== "") {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("404 Not Found");
     return;
   }
 

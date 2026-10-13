@@ -558,28 +558,40 @@ export function plantAlarms(plant: Plant): Alarm[] {
 export function lineAlarms(line: Line): Alarm[] {
   const seed = `${line.id}-la`;
   const list: Alarm[] = [];
-  if (line.fault) {
+  const culprit = line.machines.find((m) => m.status === "down");
+  const culpritMachineId = culprit
+    ? culprit.code || culprit.id
+    : line.bottleneck && line.bottleneck !== "-"
+      ? line.bottleneck
+      : line.machines[0]?.id ?? "-";
+
+  if (line.status === "down" || line.fault) {
     list.push({
       id: `${line.id}-active`,
       lineId: line.id,
-      machineId: line.machines[0]?.id ?? "-",
-      issue: line.fault,
-      start: "06:12",
-      durationMinutes: rand(seed + "1", 12, 92, 0),
+      machineId: culpritMachineId,
+      issue: line.fault || culprit?.currentStop?.fault || "Machine breakdown stop",
+      start: culprit?.currentStop?.startedAt || "06:12",
+      durationMinutes: culprit?.currentStop?.elapsedMinutes ?? rand(seed + "1", 12, 92, 0),
       status: "OCCURRING",
       severity: "CRITICAL",
     });
   }
-  list.push({
-    id: `${line.id}-r1`,
-    lineId: line.id,
-    machineId: line.machines[1]?.id ?? "-",
-    issue: pick(seed + "i", FAULTS),
-    start: "04:55",
-    durationMinutes: rand(seed + "2", 4, 38, 0),
-    status: "Resolved",
-    severity: "MEDIUM",
-  });
+
+  // Secondary resolved alarm for realism if machines exist
+  if (line.machines.length > 1) {
+    const otherMachine = line.machines.find((m) => (m.code || m.id) !== culpritMachineId) || line.machines[1];
+    list.push({
+      id: `${line.id}-r1`,
+      lineId: line.id,
+      machineId: otherMachine?.code || otherMachine?.id || "-",
+      issue: pick(seed + "i", FAULTS),
+      start: "04:55",
+      durationMinutes: rand(seed + "2", 4, 38, 0),
+      status: "Resolved",
+      severity: "MEDIUM",
+    });
+  }
   return list;
 }
 

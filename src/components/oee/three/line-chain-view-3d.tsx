@@ -69,6 +69,17 @@ function Bop15LineChainView({
   const [isPlaying, setIsPlaying] = useState(true);
   const sceneRef = useRef<IsoMachineSceneHandle>(null);
 
+  useEffect(() => {
+    if (DEBUG_CHAIN && typeof window !== "undefined") {
+      (window as any).debugIsoLayout = () => {
+        const wrapper = sceneRef.current;
+        console.info("[DEBUG_ISO] Debugging layout...", {
+          wrapper: wrapper,
+        });
+      };
+    }
+  }, []);
+
   const override = ISO_MODEL_OVERRIDES["J2:BOP15"];
   const machines = override.machines;
 

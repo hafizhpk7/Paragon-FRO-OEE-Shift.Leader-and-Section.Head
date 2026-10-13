@@ -36,16 +36,35 @@ export function selectMetrics(
  * Status selector ensuring single source of truth across stack lights, hover badges, map colors.
  */
 export function selectStatus(plantId: string, lineId: string, machineId?: string): Status {
+  const l =
+    getLine(plantId, "A", lineId) || getLine(plantId, "B", lineId) || getLine(plantId, "C", lineId);
+
   if (machineId) {
+    const cleanId = machineId.replace(new RegExp(`^${lineId}-`), "");
     const m =
+      l?.machines.find(
+        (mach) =>
+          mach.id === machineId ||
+          mach.code === machineId ||
+          mach.key === machineId ||
+          mach.id === cleanId ||
+          mach.code === cleanId ||
+          mach.key === `${lineId}-${cleanId}`,
+      ) ||
       getMachine(plantId, "A", lineId, machineId) ||
       getMachine(plantId, "B", lineId, machineId) ||
       getMachine(plantId, "C", lineId, machineId);
     if (m) return m.status;
   }
-  const l =
-    getLine(plantId, "A", lineId) || getLine(plantId, "B", lineId) || getLine(plantId, "C", lineId);
-  return l?.status ?? "running";
+
+  if (!l || !l.machines || l.machines.length === 0) return l?.status ?? "running";
+
+  // Derive line status from machines (worst wins: down > slow > running > idle)
+  const machineStatuses = l.machines.map((mach) => selectStatus(plantId, lineId, mach.code || mach.id));
+  if (machineStatuses.includes("down")) return "down";
+  if (machineStatuses.includes("slow")) return "slow";
+  if (machineStatuses.every((s) => s === "idle")) return "idle";
+  return "running";
 }
 
 /**
@@ -182,6 +201,23 @@ export function runParityAudit(): ParityMismatch[] {
           message: `Mismatch on ${key}: values [${group.rawValues.join(", ")}] differ in DOM`,
         });
       }
+    }
+  }
+
+  // 3. Line OEE vs Bottleneck Machine OEE parity on Line Detail
+  const lineOeeEl = document.querySelector("[data-metric='line-oee']");
+  const bnOeeEl = document.querySelector("[data-metric='line-bottleneck-machine-oee']");
+  if (lineOeeEl && bnOeeEl) {
+    const lVal = parseFloat(lineOeeEl.getAttribute("data-raw") || "");
+    const bVal = parseFloat(bnOeeEl.getAttribute("data-raw") || "");
+    if (!isNaN(lVal) && !isNaN(bVal) && Math.abs(lVal - bVal) > 0.05) {
+      mismatches.push({
+        key: "line-vs-bottleneck-parity",
+        expected: bVal,
+        actualValues: [lVal, bVal],
+        elementsCount: 2,
+        message: `Line OEE (${lVal}%) differs from bottleneck machine OEE (${bVal}%)`,
+      });
     }
   }
 
