@@ -39,16 +39,19 @@ if (fs.existsSync(outputServerDir)) {
 const shellHtmlPath = path.join(outputPublicDir, "_shell.html");
 const distIndexPath = path.join(distDir, "index.html");
 const dist404Path = path.join(distDir, "404.html");
-const rootIndexPath = path.join(rootDir, "index.html");
 
 let htmlContent = "";
 
 if (fs.existsSync(shellHtmlPath)) {
   htmlContent = fs.readFileSync(shellHtmlPath, "utf-8");
   console.log("Using prerendered SPA _shell.html for index.html and 404.html");
-} else if (fs.existsSync(rootIndexPath)) {
-  htmlContent = fs.readFileSync(rootIndexPath, "utf-8");
-  console.log("Using root index.html as template");
+} else if (
+  fs.existsSync(distIndexPath) &&
+  fs.readFileSync(distIndexPath, "utf-8").includes("/assets/") &&
+  !fs.readFileSync(distIndexPath, "utf-8").includes("/src/main.tsx")
+) {
+  htmlContent = fs.readFileSync(distIndexPath, "utf-8");
+  console.log("Kept existing Vite-built dist/index.html");
 } else {
   const assetsDir = path.join(distDir, "assets");
   let mainJs = "";
@@ -61,6 +64,8 @@ if (fs.existsSync(shellHtmlPath)) {
     const cssFiles = files.filter((f) => f.startsWith("styles-") && f.endsWith(".css"));
     if (cssFiles.length > 0) mainCss = `/assets/${cssFiles[0]}`;
   }
+
+  if (!mainJs) throw new Error("Could not find main JS bundle in dist/assets");
 
   htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -84,6 +89,10 @@ if (fs.existsSync(shellHtmlPath)) {
   </body>
 </html>
 `;
+}
+
+if (htmlContent.includes("/src/main.tsx")) {
+  throw new Error("Generated/selected HTML still contains /src/main.tsx!");
 }
 
 fs.writeFileSync(distIndexPath, htmlContent, "utf-8");

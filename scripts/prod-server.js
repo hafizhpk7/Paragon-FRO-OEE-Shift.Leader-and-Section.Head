@@ -39,7 +39,7 @@ const server = http.createServer((req, res) => {
   let pathname = decodeURIComponent(parsedUrl.pathname);
 
   // Serve a valid no-op service worker for _service-worker.js to prevent MIME type / registration security errors
-  if (pathname === "/_service-worker.js") {
+  if (pathname.endsWith("/_service-worker.js")) {
     res.writeHead(200, {
       "Content-Type": "application/javascript; charset=utf-8",
       "Cache-Control": "no-cache",
