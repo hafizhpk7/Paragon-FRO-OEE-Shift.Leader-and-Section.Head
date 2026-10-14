@@ -552,12 +552,7 @@ export function getMetrics(
     const lineId = entityId;
     const bottleneckMachineId = getBottleneck(plantId, lineId);
     // Line metrics are strictly equal to bottleneck machine's metrics
-    const bnMetrics = getMetrics(
-      plantId,
-      "machine",
-      `${lineId}:${bottleneckMachineId}`,
-      resolved,
-    );
+    const bnMetrics = getMetrics(plantId, "machine", `${lineId}:${bottleneckMachineId}`, resolved);
 
     const line =
       getLine(plantId, "A", lineId) ||

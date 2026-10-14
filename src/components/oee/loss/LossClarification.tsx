@@ -37,6 +37,7 @@ import {
 import {
   getLineSiblingMachines,
   saveEventClassification,
+  saveBatchClassification,
   type EventType,
   type LossCause,
   type MachineEvent,
@@ -64,6 +65,8 @@ export interface LossClarificationProps {
   snapshot: ShiftSnapshot;
   selectedEventId: string | null;
   onSelectEventId: (id: string | null) => void;
+  selectedEventIds?: string[];
+  onSelectEventIds?: (ids: string[]) => void;
   isExpanded: boolean;
   onToggleExpand: () => void;
   onSaveSuccess?: () => void;
@@ -82,12 +85,87 @@ export function LossClarification({
   snapshot,
   selectedEventId,
   onSelectEventId,
+  selectedEventIds: propSelectedEventIds,
+  onSelectEventIds: propOnSelectEventIds,
   isExpanded,
   onToggleExpand,
   onSaveSuccess,
   resolved: propResolved,
   className,
 }: LossClarificationProps) {
+  const [internalSelectedEventIds, setInternalSelectedEventIds] = useState<string[]>([]);
+  const selectedEventIds = propSelectedEventIds || internalSelectedEventIds;
+  const onSelectEventIds = propOnSelectEventIds || setInternalSelectedEventIds;
+
+  // Sync selectedEventId and selectedEventIds without infinite loops
+  const prevPropIdRef = useRef(selectedEventId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (selectedEventId !== prevPropIdRef.current) {
+      prevPropIdRef.current = selectedEventId;
+      if (selectedEventId && !selectedEventIds.includes(selectedEventId)) {
+        onSelectEventIds([selectedEventId]);
+      } else if (!selectedEventId && selectedEventIds.length > 0) {
+        onSelectEventIds([]);
+      }
+    }
+  }, [selectedEventId]);
+
+  const prevIdsRef = useRef(selectedEventIds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (selectedEventIds !== prevIdsRef.current) {
+      prevIdsRef.current = selectedEventIds;
+      const primary = selectedEventIds.length > 0 ? selectedEventIds[0] : null;
+      if (primary !== selectedEventId) {
+        onSelectEventId(primary);
+      }
+    }
+  }, [selectedEventIds]);
+
+  const lockedType = useMemo(() => {
+    if (selectedEventIds.length === 0) return null;
+    const first = events.find((e) => e.id === selectedEventIds[0]);
+    return first ? first.type : null;
+  }, [selectedEventIds, events]);
+
+  const selectedEvents = useMemo(() => {
+    return selectedEventIds
+      .map((id) => events.find((e) => e.id === id))
+      .filter(Boolean) as MachineEvent[];
+  }, [selectedEventIds, events]);
+
+  const totalSelectedDuration = useMemo(() => {
+    return selectedEvents.reduce((sum, e) => sum + e.durationSec, 0);
+  }, [selectedEvents]);
+
+  const spansMultiplePOs = useMemo(() => {
+    const poSet = new Set(selectedEvents.map((e) => e.orderId));
+    return poSet.size > 1;
+  }, [selectedEvents]);
+
+  const firstEventStart = useMemo(() => {
+    if (selectedEvents.length === 0) return 0;
+    return Math.min(...selectedEvents.map((e) => e.startAt ?? shift.startSec + e.startSec));
+  }, [selectedEvents, shift.startSec]);
+
+  const lastEventEnd = useMemo(() => {
+    if (selectedEvents.length === 0) return 0;
+    return Math.max(...selectedEvents.map((e) => e.endAt ?? shift.startSec + e.endSec));
+  }, [selectedEvents, shift.startSec]);
+
+  const lastCheckedIdRef = useRef<string | null>(null);
+
+  // Esc clears selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onSelectEventIds([]);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onSelectEventIds]);
   const { role } = useApp();
   const { resolved: contextResolved, setPeriodKey } = usePeriod();
   const activeResolved = propResolved || contextResolved;
@@ -294,6 +372,114 @@ export function LossClarification({
     });
     return groups;
   }, [orders, filteredEvents]);
+
+  const handleCheckboxClick = (e: React.MouseEvent, ev: MachineEvent) => {
+    e.stopPropagation();
+    const isChecked = selectedEventIds.includes(ev.id);
+    const nativeEvent = e.nativeEvent as MouseEvent;
+
+    if (nativeEvent.shiftKey && lastCheckedIdRef.current) {
+      const eligibleList = filteredEvents.filter((item) => {
+        if (item.isOngoing) return false;
+        if (lockedType && item.type !== lockedType) return false;
+        if (!isItemEligible(item.startAt, now)) return false;
+        const isClassified =
+          item.type === "planned" ||
+          (item.causes.length > 0 &&
+            item.causes.reduce((s, c) => s + c.durationSec, 0) >= item.durationSec);
+        if (isClassified && !isSectionHead) return false;
+        return true;
+      });
+
+      const lastIdx = eligibleList.findIndex((item) => item.id === lastCheckedIdRef.current);
+      const currIdx = eligibleList.findIndex((item) => item.id === ev.id);
+
+      if (lastIdx !== -1 && currIdx !== -1) {
+        const start = Math.min(lastIdx, currIdx);
+        const end = Math.max(lastIdx, currIdx);
+        const rangeIds = eligibleList.slice(start, end + 1).map((item) => item.id);
+        const newSet = new Set([...selectedEventIds, ...rangeIds]);
+        onSelectEventIds(Array.from(newSet));
+        lastCheckedIdRef.current = ev.id;
+        return;
+      }
+    }
+
+    if (isChecked) {
+      const next = selectedEventIds.filter((id) => id !== ev.id);
+      onSelectEventIds(next);
+      if (next.length === 0) {
+        lastCheckedIdRef.current = null;
+      }
+    } else {
+      if (lockedType && ev.type !== lockedType) {
+        toast.error("Mixed types are not allowed in one group");
+        return;
+      }
+      onSelectEventIds([...selectedEventIds, ev.id]);
+      lastCheckedIdRef.current = ev.id;
+    }
+  };
+
+  const handleBatchSave = () => {
+    if (selectedEventIds.length < 2 || !selectedReasonId || !lockedType) return;
+
+    const items = selectedEvents.map((e) => ({
+      shiftKey: shift.shiftKey,
+      eventId: e.id,
+      startAt: e.startAt ?? shift.startSec + e.startSec,
+      durationSec: e.durationSec,
+      type: e.type,
+      isOngoing: e.isOngoing,
+      isAlreadyClassified:
+        e.type === "planned" ||
+        (e.causes.length > 0 && e.causes.reduce((s, c) => s + c.durationSec, 0) >= e.durationSec),
+    }));
+
+    const res = saveBatchClassification({
+      machineCode,
+      items,
+      causeTemplate: {
+        l0Component: selectedComp,
+        l1Parent: selectedParent,
+        l2CategoryId: selectedCatId,
+        l2CategoryName: selectedCatName,
+        l3ReasonId: selectedReasonId,
+        l3ReasonName: selectedReasonName,
+      },
+      note: noteText,
+      causeMachineCode,
+      role,
+      lockedType,
+    });
+
+    if (res && !res.success && res.failures) {
+      toast.error(
+        `Batch save failed for ${res.failures.length} event(s): ${res.failures
+          .map((f) => f.reason)
+          .join(", ")}`,
+      );
+      return;
+    }
+
+    setSaveFlash(`Saved · ${selectedReasonName} (${selectedEventIds.length} events)`);
+    setTimeout(() => setSaveFlash(null), 3200);
+
+    onSaveSuccess?.();
+
+    onSelectEventIds([]);
+    const nextUnclassified = events.find((e) => {
+      if (e.type === "planned" || e.isOngoing || selectedEventIds.includes(e.id)) return false;
+      const classified = e.causes.reduce((sum, c) => sum + c.durationSec, 0);
+      return classified < e.durationSec;
+    });
+
+    if (nextUnclassified) {
+      onSelectEventId(nextUnclassified.id);
+    } else {
+      onSelectEventId(null);
+    }
+  };
 
   // Tab counts
   const unclassifiedTotal = useMemo(() => {
@@ -866,6 +1052,79 @@ export function LossClarification({
           {/* LEFT COLUMN: Event List (5 cols desktop) */}
           {/* ========================================================= */}
           <div className="lg:col-span-5 flex flex-col min-h-0 bg-background/40">
+            {/* Header Toolbar when >= 1 selected */}
+            {selectedEventIds.length > 0 && (
+              <div className="flex items-center justify-between bg-primary/10 border-b border-primary/20 px-3 py-1.5 text-xs">
+                <span className="font-semibold text-foreground">
+                  {selectedEventIds.length} selected · {formatDuration(totalSelectedDuration)}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSelectEventIds([])}
+                    className="text-muted-foreground hover:text-foreground text-[11px] underline cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const matching = filteredEvents
+                        .filter((e) => {
+                          if (e.isOngoing) return false;
+                          if (lockedType && e.type !== lockedType) return false;
+                          if (!isItemEligible(e.startAt, now)) return false;
+                          const isClassified =
+                            e.type === "planned" ||
+                            (e.causes.length > 0 &&
+                              e.causes.reduce((s, c) => s + c.durationSec, 0) >= e.durationSec);
+                          if (isClassified && !isSectionHead) return false;
+                          return true;
+                        })
+                        .map((e) => e.id);
+                      onSelectEventIds(matching);
+                    }}
+                    className="rounded bg-primary text-primary-foreground px-2 py-0.5 text-[10px] font-bold cursor-pointer"
+                  >
+                    Select all of this type
+                  </button>
+                  {(() => {
+                    const lastCheckedEv =
+                      events.find((e) => e.id === lastCheckedIdRef.current) ||
+                      selectedEvents[selectedEvents.length - 1];
+                    if (!lastCheckedEv?.plcAlarm) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const alarm = lastCheckedEv.plcAlarm;
+                          const matching = filteredEvents
+                            .filter((e) => {
+                              if (e.isOngoing) return false;
+                              if (lockedType && e.type !== lockedType) return false;
+                              if (e.plcAlarm !== alarm) return false;
+                              if (!isItemEligible(e.startAt, now)) return false;
+                              const isClassified =
+                                e.type === "planned" ||
+                                (e.causes.length > 0 &&
+                                  e.causes.reduce((s, c) => s + c.durationSec, 0) >= e.durationSec);
+                              if (isClassified && !isSectionHead) return false;
+                              return true;
+                            })
+                            .map((e) => e.id);
+                          onSelectEventIds(matching);
+                        }}
+                        className="rounded bg-primary/20 text-primary px-2 py-0.5 text-[10px] font-bold cursor-pointer"
+                        title={`Select all with alarm ${lastCheckedEv.plcAlarm}`}
+                      >
+                        Select similar
+                      </button>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
             {/* Filter row */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 p-2.5 text-xs bg-surface/50">
               <div className="flex items-center gap-2">
@@ -967,6 +1226,26 @@ export function LossClarification({
                                   ? ev.causes[0].l3ReasonName
                                   : ev.plcAlarm || "";
 
+                            const isSelectedInGroup = selectedEventIds.includes(ev.id);
+                            const isAlreadyClassified =
+                              ev.type === "planned" ||
+                              (ev.causes.length > 0 &&
+                                ev.causes.reduce((s, c) => s + c.durationSec, 0) >= ev.durationSec);
+                            const isDisabled =
+                              ev.isOngoing ||
+                              !isItemEligible(ev.startAt, now) ||
+                              (lockedType !== null && ev.type !== lockedType) ||
+                              (isAlreadyClassified && !isSectionHead);
+                            const disabledTooltip = ev.isOngoing
+                              ? "Ongoing stop"
+                              : !isItemEligible(ev.startAt, now)
+                                ? "Only the last 7 days can be clarified"
+                                : lockedType !== null && ev.type !== lockedType
+                                  ? "Different loss type"
+                                  : isAlreadyClassified && !isSectionHead
+                                    ? "Only Section Head can edit classified loss"
+                                    : "";
+
                             return (
                               <div
                                 key={ev.id}
@@ -976,6 +1255,8 @@ export function LossClarification({
                                   isSelected
                                     ? "bg-primary/10 border-l-4 border-l-primary"
                                     : "hover:bg-muted/50 border-l-4",
+                                  isSelectedInGroup && !isSelected && "bg-primary/5",
+                                  isDisabled && "opacity-60",
                                   !isSelected &&
                                     ev.type === "downtime" &&
                                     "border-l-[var(--loss-down)]",
@@ -990,19 +1271,21 @@ export function LossClarification({
                                     "border-l-[var(--loss-planned)]",
                                 )}
                               >
-                                {/* Radio indicator */}
-                                <div
+                                {/* Checkbox */}
+                                <input
+                                  type="checkbox"
+                                  checked={isSelectedInGroup}
+                                  disabled={isDisabled}
+                                  title={disabledTooltip}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) =>
+                                    handleCheckboxClick(e as unknown as React.MouseEvent, ev)
+                                  }
                                   className={cn(
-                                    "size-3.5 rounded-full border flex items-center justify-center mt-0.5 shrink-0 transition-colors",
-                                    isSelected
-                                      ? "border-primary bg-primary text-primary-foreground"
-                                      : "border-muted-foreground/50 bg-background",
+                                    "size-4 rounded border-border text-primary focus:ring-0 cursor-pointer shrink-0 mt-0.5",
+                                    isDisabled && "opacity-40 cursor-not-allowed",
                                   )}
-                                >
-                                  {isSelected && (
-                                    <div className="size-1.5 rounded-full bg-surface" />
-                                  )}
-                                </div>
+                                />
 
                                 {/* Center: Type + Duration + Range + Reason */}
                                 <div className="flex-1 min-w-0">

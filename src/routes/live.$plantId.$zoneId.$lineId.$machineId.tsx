@@ -76,6 +76,7 @@ function MachineDetail() {
   const tick = useLiveTick();
   const classVer = useClassificationVersion();
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [forcedFocus, setForcedFocus] = useState<"loss" | "events" | null>(null);
 
   const line = getLine(plantId, zoneId, lineId);
@@ -123,6 +124,7 @@ function MachineDetail() {
   // Reset selected event when machine code changes
   useEffect(() => {
     setSelectedEventId(null);
+    setSelectedEventIds([]);
   }, [machineId]);
 
   if (!line || !machine) {
@@ -373,6 +375,8 @@ function MachineDetail() {
               snapshot={snapshot}
               selectedEventId={selectedEventId}
               onSelectEventId={setSelectedEventId}
+              selectedEventIds={selectedEventIds}
+              onSelectEventIds={setSelectedEventIds}
               isLivePeriod={resolved.periodKey === "this-shift"}
               forcedFocus={forcedFocus}
               resolved={resolved}

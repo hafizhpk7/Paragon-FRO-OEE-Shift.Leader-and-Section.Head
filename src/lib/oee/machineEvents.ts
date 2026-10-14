@@ -29,6 +29,10 @@ export interface LossCause {
   l3ReasonName: string;
   causeMachineCode?: string;
   note?: string;
+  groupId?: string;
+  groupSize?: number;
+  groupedBy?: string;
+  groupedAt?: number;
 }
 
 export interface MachineEvent {
@@ -259,6 +263,153 @@ export function saveEventClassification(
   }
   memoryClassificationStore.set(`${shiftKey}:${machineCode}:${eventId}`, causes);
   notifyClassificationChanged();
+  return { success: true };
+}
+
+export interface BatchItemParam {
+  shiftKey: string;
+  eventId: string;
+  startAt: number;
+  durationSec: number;
+  type: EventType;
+  isOngoing?: boolean;
+  isAlreadyClassified?: boolean;
+}
+
+export interface BatchClassificationParams {
+  machineCode: string;
+  items: BatchItemParam[];
+  causeTemplate: {
+    l0Component: LossComponent;
+    l1Parent: LossParent;
+    l2CategoryId: string;
+    l2CategoryName: string;
+    l3ReasonId: string;
+    l3ReasonName: string;
+  };
+  note?: string;
+  causeMachineCode?: string;
+  role?: Role | string;
+  lockedType: EventType;
+}
+
+export function saveBatchClassification(params: BatchClassificationParams): {
+  success: boolean;
+  failures?: { eventId: string; reason: string }[];
+} {
+  const { machineCode, items, causeTemplate, note, causeMachineCode, role, lockedType } = params;
+  const currentRole = (role ||
+    (typeof window !== "undefined" ? localStorage.getItem("paragon_oee_role") : null) ||
+    "section-head") as string;
+  const now = new Date();
+  const failures: { eventId: string; reason: string }[] = [];
+
+  for (const item of items) {
+    if (item.startAt === undefined || !Number.isFinite(item.startAt)) {
+      failures.push({ eventId: item.eventId, reason: "Invalid or missing start time" });
+      continue;
+    }
+    if (!isItemEligible(item.startAt, now)) {
+      failures.push({ eventId: item.eventId, reason: "Outside 7-day lookback window" });
+      continue;
+    }
+    if (item.isOngoing) {
+      failures.push({ eventId: item.eventId, reason: "Ongoing stop cannot be grouped" });
+      continue;
+    }
+    if (item.type !== lockedType) {
+      failures.push({ eventId: item.eventId, reason: "Event type does not match group type" });
+      continue;
+    }
+    if (item.isAlreadyClassified && !canEditClassified(currentRole)) {
+      failures.push({
+        eventId: item.eventId,
+        reason: "Only Section Head can edit classified loss",
+      });
+      continue;
+    }
+  }
+
+  if (failures.length > 0) {
+    return { success: false, failures };
+  }
+
+  const groupId = `GRP-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const groupSize = items.length;
+  const groupedAt = Date.now();
+
+  const itemsByShift = new Map<string, BatchItemParam[]>();
+  for (const item of items) {
+    const list = itemsByShift.get(item.shiftKey) || [];
+    list.push(item);
+    itemsByShift.set(item.shiftKey, list);
+  }
+
+  const previousCausesMap: Record<string, Record<string, LossCause[]>> = {};
+
+  for (const [shiftKey, shiftItems] of itemsByShift.entries()) {
+    const existing = getSavedClassifications(shiftKey, machineCode);
+    previousCausesMap[shiftKey] = JSON.parse(JSON.stringify(existing));
+
+    for (const item of shiftItems) {
+      const causeId = `C-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const cause: LossCause = {
+        id: causeId,
+        durationSec: item.durationSec,
+        l0Component: causeTemplate.l0Component,
+        l1Parent: causeTemplate.l1Parent,
+        l2CategoryId: causeTemplate.l2CategoryId,
+        l2CategoryName: causeTemplate.l2CategoryName,
+        l3ReasonId: causeTemplate.l3ReasonId,
+        l3ReasonName: causeTemplate.l3ReasonName,
+        causeMachineCode: causeMachineCode || machineCode,
+        note: note || undefined,
+        groupId,
+        groupSize,
+        groupedBy: currentRole,
+        groupedAt,
+      };
+      existing[item.eventId] = [cause];
+    }
+
+    const key = `fro-oee-loss:${shiftKey}:${machineCode}`;
+    try {
+      localStorage.setItem(key, JSON.stringify(existing));
+    } catch {
+      // fallback
+    }
+    for (const item of shiftItems) {
+      memoryClassificationStore.set(
+        `${shiftKey}:${machineCode}:${item.eventId}`,
+        existing[item.eventId],
+      );
+    }
+  }
+
+  notifyClassificationChanged();
+
+  toast.success(`${groupSize} events clarified`, {
+    action: {
+      label: "Undo",
+      onClick: () => {
+        for (const [shiftKey, prevCauses] of Object.entries(previousCausesMap)) {
+          const key = `fro-oee-loss:${shiftKey}:${machineCode}`;
+          try {
+            localStorage.setItem(key, JSON.stringify(prevCauses));
+          } catch {
+            // fallback
+          }
+          for (const [eventId, causes] of Object.entries(prevCauses)) {
+            memoryClassificationStore.set(`${shiftKey}:${machineCode}:${eventId}`, causes);
+          }
+        }
+        notifyClassificationChanged();
+        toast.info("Batch clarification undone");
+      },
+    },
+    duration: 8000,
+  });
+
   return { success: true };
 }
 

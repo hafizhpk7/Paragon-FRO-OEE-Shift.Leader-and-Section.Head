@@ -501,32 +501,45 @@ export function createBop15ChainGroup(getStatusFn: (key: string) => string): THR
   const registry: { key: string; group: THREE.Group; lamps: THREE.MeshBasicMaterial[] }[] = [];
 
   machines.forEach((m) => {
-    const group = m.type === "LBF" ? LBF15({ rightWall: m.rightWall ?? true }) : m.type === "LBC" ? LBC() : LCM();
+    const group =
+      m.type === "LBF"
+        ? LBF15({ rightWall: m.rightWall ?? true })
+        : m.type === "LBC"
+          ? LBC()
+          : LCM();
     const u = group.userData;
-    
+
     // Add stack light poles and lamps
-    const sp = [m.type === "LBF" ? 0.15 : m.type === "LBC" ? u.W - 0.15 : u.W - 0.12, 
-                m.type === "LBF" ? 1.41 : m.type === "LBC" ? 1.31 : 1.17, 
-                m.type === "LBF" ? u.D - 0.22 : m.type === "LBC" ? u.D * 0.5 : 0.14];
-    
+    const sp = [
+      m.type === "LBF" ? 0.15 : m.type === "LBC" ? u.W - 0.15 : u.W - 0.12,
+      m.type === "LBF" ? 1.41 : m.type === "LBC" ? 1.31 : 1.17,
+      m.type === "LBF" ? u.D - 0.22 : m.type === "LBC" ? u.D * 0.5 : 0.14,
+    ];
+
     // Stack light lamp materials
     const lamps: THREE.MeshBasicMaterial[] = [];
-    for(let i=0; i<3; i++) {
-        const mat = new THREE.MeshBasicMaterial({ color: [0xe24b4a, 0xf5a623, 0x2ecc71][i] });
-        B(group, sp[0] - 0.0375, sp[1] + 0.2 - i * 0.075, sp[2] - 0.0375, 0.075, 0.075, 0.075, 0x0, {color: [0xe24b4a, 0xf5a623, 0x2ecc71][i]});
-        lamps.push(mat);
+    for (let i = 0; i < 3; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: [0xe24b4a, 0xf5a623, 0x2ecc71][i] });
+      B(group, sp[0] - 0.0375, sp[1] + 0.2 - i * 0.075, sp[2] - 0.0375, 0.075, 0.075, 0.075, 0x0, {
+        color: [0xe24b4a, 0xf5a623, 0x2ecc71][i],
+      });
+      lamps.push(mat);
     }
-    
+
     // Hit proxy
-    const proxy = B(group, 0, 0, 0, u.W, u.H, u.D, 0x0, { visible: false, transparent: true, opacity: 0 });
+    const proxy = B(group, 0, 0, 0, u.W, u.H, u.D, 0x0, {
+      visible: false,
+      transparent: true,
+      opacity: 0,
+    });
     proxy.userData = { lineCode: "BOP15", machineCode: m.key.replace("BOP15-", "") };
 
     place(g, group, x);
     x += m.type === "LBF" ? 1.1 : m.type === "LBC" ? 0.95 : 2.3;
-    
+
     registry.push({ key: m.key, group, lamps });
   });
-  
+
   // Conveyors
   conveyor(g, 2.2, 3.3, 0, CONV_Y, { legs: true });
   conveyor(g, 4.25, 5.65, 0, CONV_Y, { legs: true });

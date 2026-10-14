@@ -563,7 +563,7 @@ export function lineAlarms(line: Line): Alarm[] {
     ? culprit.code || culprit.id
     : line.bottleneck && line.bottleneck !== "-"
       ? line.bottleneck
-      : line.machines[0]?.id ?? "-";
+      : (line.machines[0]?.id ?? "-");
 
   if (line.status === "down" || line.fault) {
     list.push({
@@ -580,7 +580,8 @@ export function lineAlarms(line: Line): Alarm[] {
 
   // Secondary resolved alarm for realism if machines exist
   if (line.machines.length > 1) {
-    const otherMachine = line.machines.find((m) => (m.code || m.id) !== culpritMachineId) || line.machines[1];
+    const otherMachine =
+      line.machines.find((m) => (m.code || m.id) !== culpritMachineId) || line.machines[1];
     list.push({
       id: `${line.id}-r1`,
       lineId: line.id,

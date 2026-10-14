@@ -109,10 +109,7 @@ export function Bop15ChainSprite({
   // xMin = layoutX; Y0 = layoutY + blockD / 2 (center axis on floor)
   const xMin = layoutX;
   const y0 = layoutY + blockD / 2;
-  const anchor = useMemo(
-    () => projectIsoPoint(xMin, y0, 0, isoScale),
-    [xMin, y0, isoScale],
-  );
+  const anchor = useMemo(() => projectIsoPoint(xMin, y0, 0, isoScale), [xMin, y0, isoScale]);
 
   // Chain length in layout units: Lunits = (gap * 4) + blockW
   // k (layout units per metre) = min(Lunits / 7.95, (blockD + 0.2) / 1.1)
@@ -130,8 +127,7 @@ export function Bop15ChainSprite({
 
   const isDebug =
     typeof window !== "undefined" &&
-    (window.location.search.includes("debug=1") ||
-      window.location.search.includes("debug=bop15"));
+    (window.location.search.includes("debug=1") || window.location.search.includes("debug=bop15"));
 
   // Log only in debug mode
   useEffect(() => {
@@ -161,8 +157,7 @@ export function Bop15ChainSprite({
   // Integrity Guard Fallback: If image fails or has invalid dimensions, render legacy 3D blocks
   if (imageStatus === "invalid") {
     const isDevOrDebug =
-      typeof window !== "undefined" &&
-      (Boolean((import.meta as any).env?.DEV) || isDebug);
+      typeof window !== "undefined" && (Boolean((import.meta as any).env?.DEV) || isDebug);
 
     const baseH = isoScale > 20 ? 14 : 10;
 
@@ -213,8 +208,7 @@ export function Bop15ChainSprite({
           const b3 = projectIsoPoint(blockX + blockW, blockY + blockD, 0, isoScale);
           const b2 = projectIsoPoint(blockX + blockW, blockY, 0, isoScale);
 
-          const pts = (p: { x: number; y: number }[]) =>
-            p.map((q) => `${q.x},${q.y}`).join(" ");
+          const pts = (p: { x: number; y: number }[]) => p.map((q) => `${q.x},${q.y}`).join(" ");
 
           return (
             <g
@@ -332,22 +326,12 @@ export function Bop15ChainSprite({
               const r = Math.max(lamp.radius * displayW, 2.5);
 
               const colorHex =
-                lamp.color === "red"
-                  ? "#EF4444"
-                  : lamp.color === "amber"
-                    ? "#F59E0B"
-                    : "#10B981";
+                lamp.color === "red" ? "#EF4444" : lamp.color === "amber" ? "#F59E0B" : "#10B981";
 
               return (
                 <g key={`lamp-${shortCode}-${lIdx}`} pointerEvents="none">
                   {/* Glow circle */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={r * 1.8}
-                    fill={colorHex}
-                    opacity={0.4}
-                  />
+                  <circle cx={cx} cy={cy} r={r * 1.8} fill={colorHex} opacity={0.4} />
                   {/* Lit bulb */}
                   <circle
                     cx={cx}

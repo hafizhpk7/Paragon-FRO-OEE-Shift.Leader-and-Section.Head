@@ -60,7 +60,9 @@ export function selectStatus(plantId: string, lineId: string, machineId?: string
   if (!l || !l.machines || l.machines.length === 0) return l?.status ?? "running";
 
   // Derive line status from machines (worst wins: down > slow > running > idle)
-  const machineStatuses = l.machines.map((mach) => selectStatus(plantId, lineId, mach.code || mach.id));
+  const machineStatuses = l.machines.map((mach) =>
+    selectStatus(plantId, lineId, mach.code || mach.id),
+  );
   if (machineStatuses.includes("down")) return "down";
   if (machineStatuses.includes("slow")) return "slow";
   if (machineStatuses.every((s) => s === "idle")) return "idle";

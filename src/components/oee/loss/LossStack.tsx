@@ -20,6 +20,8 @@ export interface LossStackProps {
   snapshot: ShiftSnapshot;
   selectedEventId: string | null;
   onSelectEventId: (id: string | null) => void;
+  selectedEventIds: string[];
+  onSelectEventIds: (ids: string[]) => void;
   isLivePeriod?: boolean;
   forcedFocus?: "loss" | "events" | null;
   resolved?: ResolvedPeriod;
@@ -36,6 +38,8 @@ export function LossStack({
   snapshot,
   selectedEventId,
   onSelectEventId,
+  selectedEventIds,
+  onSelectEventIds,
   isLivePeriod = true,
   forcedFocus,
   resolved,
@@ -89,6 +93,8 @@ export function LossStack({
         snapshot={snapshot}
         selectedEventId={selectedEventId}
         onSelectEventId={onSelectEventId}
+        selectedEventIds={selectedEventIds}
+        onSelectEventIds={onSelectEventIds}
         isExpanded={focus === "loss"}
         onToggleExpand={() => handleSetFocus(focus === "loss" ? "events" : "loss")}
         resolved={resolved}

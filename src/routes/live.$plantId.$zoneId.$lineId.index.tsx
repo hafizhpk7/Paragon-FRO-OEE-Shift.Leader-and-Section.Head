@@ -236,8 +236,8 @@ function LineDetail() {
         >
           {/* Pills must be in NORMAL flow, not absolute (§1.3) */}
           <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-             {/* Note: This is simplified. In a real scenario I'd lift the pill row component logic. */}
-             <span className="text-xs text-muted-foreground">See 3D scene below for status</span>
+            {/* Note: This is simplified. In a real scenario I'd lift the pill row component logic. */}
+            <span className="text-xs text-muted-foreground">See 3D scene below for status</span>
           </div>
           <div className="relative w-full h-[clamp(320px,40vh,440px)] overflow-hidden rounded-lg">
             <LineChainView3D plantId={plantId} zoneId={zoneId} line={line} />

@@ -147,10 +147,10 @@ export function J2PlantCanvas3D({
 
         try {
           const modelInst = buildMachineModel(modelKey, {
-                lod: 0,
-                seed: mIdx * 50 + 13,
-                status: "running",
-              });
+            lod: 0,
+            seed: mIdx * 50 + 13,
+            status: "running",
+          });
 
           // Normalize size
           const bounds = modelInst.getBounds();
