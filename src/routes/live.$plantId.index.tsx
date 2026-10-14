@@ -171,21 +171,19 @@ function PlantView() {
           </div>
         </div>
 
-        <div className="grid flex-1 w-full gap-3 lg:grid-cols-[1.6fr_1fr]">
+        <div className="grid w-full gap-3 lg:grid-cols-[1.6fr_1fr] lg:h-[clamp(560px,calc(100dvh-300px),820px)]">
           <Panel
             title="Zone map"
             subtitle="Click a zone to open Zone View"
+            className="min-h-[520px] lg:min-h-0"
             bodyClassName="relative p-0 overflow-hidden"
           >
             {plant.id === "J2" ? (
               <J2PlantZoneMap plant={plant} />
             ) : (
-              <div
-                ref={mapContainerRef}
-                className="relative h-full w-full min-h-[400px] md:min-h-[500px] flex-1"
-              >
+              <div ref={mapContainerRef} className="relative flex min-h-0 flex-1 flex-col w-full">
                 <Compass />
-                <ZoomableMap className="min-h-[400px] md:min-h-[500px] flex-1">
+                <ZoomableMap className="min-h-[480px] flex-1">
                   <IsoScene viewBox="-270 -115 560 440">
                     <IsoGround
                       cols={plant.zones.length * 2.5 + 0.8}
@@ -304,9 +302,10 @@ function PlantView() {
           <Panel
             title="Alarms"
             subtitle={`${occurring} occurring · ${alarms.length - occurring} ${resolvedWording}`}
+            className="min-h-0 max-h-[420px] lg:max-h-none"
             bodyClassName="p-0 overflow-hidden"
           >
-            <div className="h-full min-h-[380px] w-full min-w-0 overflow-x-auto overflow-y-auto">
+            <div className="min-h-0 flex-1 w-full min-w-0 overflow-x-auto overflow-y-auto">
               <table className="w-full min-w-[480px] text-[11px]">
                 <thead className="sticky top-0 bg-surface text-left text-muted-foreground">
                   <tr className="border-b border-border">

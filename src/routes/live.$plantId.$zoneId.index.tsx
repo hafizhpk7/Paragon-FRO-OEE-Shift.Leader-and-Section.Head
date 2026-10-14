@@ -242,7 +242,7 @@ function ZoneContent({
         </div>
 
         <Panel
-          className="flex-1 w-full min-w-0"
+          className="flex-1 w-full min-w-0 min-h-[560px] max-h-[900px]"
           title="Production Floor Map"
           subtitle={`${zone.lines.length} lines · ${machineCount} machines`}
           bodyClassName="relative p-0 overflow-hidden"
@@ -250,11 +250,8 @@ function ZoneContent({
           {plantId === "J2" ? (
             <J2ZoneProductionFloorMap plantId={plantId} zone={zone} />
           ) : (
-            <div
-              ref={mapContainerRef}
-              className="relative h-full w-full min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1"
-            >
-              <ZoomableMap className="min-h-[400px] sm:min-h-[500px] md:min-h-[600px] flex-1">
+            <div ref={mapContainerRef} className="relative flex min-h-0 flex-1 flex-col w-full">
+              <ZoomableMap className="min-h-[480px] flex-1">
                 <IsoScene viewBox="-260 -100 620 460">
                   <IsoGround cols={cols * GAP_X + 0.6} rows={rows * GAP_Y + 0.6} s={S} />
                   {zone.lines.map((l, i) => {

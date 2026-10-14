@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   STATUS_DOT,
@@ -154,6 +154,72 @@ const J2IsoBlock = React.memo(function J2IsoBlock({
     </g>
   );
 });
+
+interface BoxRect {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+}
+
+function computeFittedViewBox(
+  sceneEl: SVGGElement | null,
+  containerEl: HTMLElement | null,
+  fallback: BoxRect,
+): string {
+  try {
+    if (sceneEl && containerEl) {
+      const bbox = sceneEl.getBBox();
+      if (bbox && bbox.width > 10 && bbox.height > 10) {
+        const containerW = containerEl.clientWidth;
+        const containerH = containerEl.clientHeight;
+
+        const marginPercent = CAMERA_FIT_MARGIN_PERCENT; // 0.04 (4%)
+        const marginX = bbox.width * marginPercent;
+        const marginY = bbox.height * marginPercent;
+        const contentW = bbox.width + 2 * marginX;
+        const contentH = bbox.height + 2 * marginY;
+        const contentX = bbox.x - marginX;
+        const contentY = bbox.y - marginY;
+
+        if (containerW > 0 && containerH > 0) {
+          // Reserve space for overlays inside the fit:
+          // top 48 px (3D/2D toggle and legend row), bottom 48 px (Status legend), left/right 16 px
+          const padTop = 48;
+          const padBottom = 48;
+          const padLeft = 16;
+          const padRight = 16;
+
+          const usableW = Math.max(20, containerW - (padLeft + padRight));
+          const usableH = Math.max(20, containerH - (padTop + padBottom));
+
+          const scale = Math.min(usableW / contentW, usableH / contentH);
+          if (scale > 0 && isFinite(scale)) {
+            const vbW = containerW / scale;
+            const vbH = containerH / scale;
+
+            const contentPixelW = contentW * scale;
+            const contentPixelH = contentH * scale;
+
+            const offsetPixelX = padLeft + (usableW - contentPixelW) / 2;
+            const offsetPixelY = padTop + (usableH - contentPixelH) / 2;
+
+            const vbX = contentX - offsetPixelX / scale;
+            const vbY = contentY - offsetPixelY / scale;
+
+            return `${Math.round(vbX * 10) / 10} ${Math.round(vbY * 10) / 10} ${Math.round(vbW * 10) / 10} ${Math.round(vbH * 10) / 10}`;
+          }
+        }
+
+        return `${Math.round(contentX * 10) / 10} ${Math.round(contentY * 10) / 10} ${Math.round(contentW * 10) / 10} ${Math.round(contentH * 10) / 10}`;
+      }
+    }
+  } catch {
+    // getBBox may throw if unattached; fall back
+  }
+
+  return `${fallback.minX} ${fallback.minY} ${fallback.width} ${fallback.height}`;
+}
 
 /**
  * High-fidelity Plant View (View 1)
@@ -316,8 +382,8 @@ export function J2PlantZoneMap({
 
     const width = maxX - minX;
     const height = maxY - minY;
-    const marginX = width * CAMERA_FIT_MARGIN_PERCENT;
-    const marginY = height * CAMERA_FIT_MARGIN_PERCENT;
+    const marginX = Math.round(width * CAMERA_FIT_MARGIN_PERCENT);
+    const marginY = Math.round(height * CAMERA_FIT_MARGIN_PERCENT);
 
     return {
       minX: minX - marginX,
@@ -327,10 +393,60 @@ export function J2PlantZoneMap({
     };
   }, []);
 
+  const fallback2D = useMemo(() => ({ minX: 0, minY: 0, width: 1020, height: 720 }), []);
+
+  const scene3dRef = useRef<SVGGElement>(null);
+  const scene2dRef = useRef<SVGGElement>(null);
+
+  const [viewBox3D, setViewBox3D] = useState<string>(
+    () => `${autoFit3D.minX} ${autoFit3D.minY} ${autoFit3D.width} ${autoFit3D.height}`,
+  );
+  const [viewBox2D, setViewBox2D] = useState<string>(
+    () => `${fallback2D.minX} ${fallback2D.minY} ${fallback2D.width} ${fallback2D.height}`,
+  );
+
+  const updateFittedViewBox = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (viewMode === "3d") {
+      const fitted = computeFittedViewBox(scene3dRef.current, container, autoFit3D);
+      setViewBox3D(fitted);
+    } else {
+      const fitted = computeFittedViewBox(scene2dRef.current, container, fallback2D);
+      setViewBox2D(fitted);
+    }
+  }, [viewMode, autoFit3D, fallback2D]);
+
+  useLayoutEffect(() => {
+    updateFittedViewBox();
+  }, [updateFittedViewBox]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => {
+      updateFittedViewBox();
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [updateFittedViewBox]);
+
+  useEffect(() => {
+    const img = new Image();
+    img.src = "/bop15-chain.webp";
+    img.onload = () => {
+      updateFittedViewBox();
+    };
+  }, [updateFittedViewBox]);
+
   return (
     <div
       ref={containerRef}
-      className={cn("relative flex h-full w-full flex-col min-h-[580px]", className)}
+      className={cn(
+        "relative flex min-h-0 flex-1 flex-col w-full",
+        className,
+      )}
     >
       {/* Top Controls: 3D / 2D Switcher & Legend */}
       <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
@@ -375,15 +491,16 @@ export function J2PlantZoneMap({
         </div>
       </div>
 
-      <ZoomableMap className="min-h-[580px] flex-1">
+      <ZoomableMap className="min-h-[480px] flex-1">
         {viewMode === "3d" ? (
           <svg
-            viewBox={`${autoFit3D.minX} ${autoFit3D.minY} ${autoFit3D.width} ${autoFit3D.height}`}
+            viewBox={viewBox3D}
+            preserveAspectRatio="xMidYMid meet"
             className="h-full w-full select-none"
             role="img"
           >
             {/* 1. Base Ground & Floor Plates */}
-            <g id="ground-and-plates-layer">
+            <g id="ground-and-plates-layer" ref={scene3dRef}>
               {(["A", "B", "C"] as const).map((zId) => {
                 const fp = J2_ZONE_FOOTPRINTS[zId];
                 const isZoneHovered = hoveredZoneId === zId;
@@ -436,7 +553,8 @@ export function J2PlantZoneMap({
                       gap={PLANT_MACHINE_GAP}
                       isoScale={PLANT_ISO_SCALE}
                       statusSource={(code) =>
-                        line?.machines.find((m) => m.code === code || m.id === code)?.status ?? "running"
+                        line?.machines.find((m) => m.code === code || m.id === code)?.status ??
+                        "running"
                       }
                       hoveredMachine={
                         hoveredMachine?.lineCode === "BOP15" ? hoveredMachine.machineCode : null
@@ -710,7 +828,12 @@ export function J2PlantZoneMap({
           </svg>
         ) : (
           /* 2D Top-Down View */
-          <svg viewBox="0 0 1020 720" className="h-full w-full bg-grid/10 select-none" role="img">
+          <svg
+            viewBox={viewBox2D}
+            preserveAspectRatio="xMidYMid meet"
+            className="h-full w-full bg-grid/10 select-none"
+            role="img"
+          >
             <defs>
               <pattern id="j2-grid-2d" width="28" height="28" patternUnits="userSpaceOnUse">
                 <path
@@ -722,9 +845,10 @@ export function J2PlantZoneMap({
                 />
               </pattern>
             </defs>
-            <rect width="1020" height="720" fill="url(#j2-grid-2d)" />
+            <rect width="100%" height="100%" fill="url(#j2-grid-2d)" />
 
-            {/* 2D Zone Footprints */}
+            <g id="plant-scene-2d" ref={scene2dRef}>
+              {/* 2D Zone Footprints */}
             {(["A", "B", "C"] as const).map((zId) => {
               const fp = J2_ZONE_FOOTPRINTS[zId];
               const isZoneHovered = hoveredZoneId === zId;
@@ -916,6 +1040,7 @@ export function J2PlantZoneMap({
                 </g>
               );
             })}
+            </g>
           </svg>
         )}
       </ZoomableMap>
@@ -1071,6 +1196,55 @@ export function J2ZoneProductionFloorMap({
     }, 120);
   }, []);
 
+  // Dynamically compute ground plate tightly surrounding this zone's machines and line labels
+  const zoneGround = useMemo(() => {
+    let minLx = Infinity;
+    let maxLx = -Infinity;
+    let minLy = Infinity;
+    let maxLy = -Infinity;
+
+    for (const lCfg of linesForZone) {
+      for (let mi = 0; mi < lCfg.machines.length; mi++) {
+        const m = lCfg.machines[mi];
+        const bx = lCfg.zoneViewLayout.x + (m.offsetX ?? mi * MACHINE_GAP);
+        let by = lCfg.zoneViewLayout.y + (m.offsetY ?? 0);
+        if (m.subRow === "top") by -= 0.85;
+
+        minLx = Math.min(minLx, bx);
+        maxLx = Math.max(maxLx, bx + ZONE_BLOCK_SIZE.w);
+        minLy = Math.min(minLy, by);
+        maxLy = Math.max(maxLy, by + ZONE_BLOCK_SIZE.d);
+      }
+
+      const isLeft = lCfg.labelSide === "left";
+      const pillX = isLeft
+        ? lCfg.zoneViewLayout.x - 2.2
+        : lCfg.zoneViewLayout.x + (lCfg.machines.length - 1) * MACHINE_GAP + 2.6;
+      minLx = Math.min(minLx, pillX - 1.2);
+      maxLx = Math.max(maxLx, pillX + 1.2);
+      minLy = Math.min(minLy, lCfg.zoneViewLayout.y);
+      maxLy = Math.max(maxLy, lCfg.zoneViewLayout.y + 0.8);
+    }
+
+    const groundMinX = Math.max(0, Math.floor(minLx - 0.8));
+    const groundMaxX = Math.ceil(maxLx + 1.0);
+    const groundMinY = Math.max(0, Math.floor(minLy - 0.8));
+    const groundMaxY = Math.ceil(maxLy + 1.0);
+
+    return {
+      minX: groundMinX,
+      maxX: groundMaxX,
+      minY: groundMinY,
+      maxY: groundMaxY,
+      points: [
+        projectIso(groundMinX, groundMinY, 0, ZONE_ISO_SCALE),
+        projectIso(groundMaxX, groundMinY, 0, ZONE_ISO_SCALE),
+        projectIso(groundMaxX, groundMaxY, 0, ZONE_ISO_SCALE),
+        projectIso(groundMinX, groundMaxY, 0, ZONE_ISO_SCALE),
+      ],
+    };
+  }, [linesForZone]);
+
   // Compute Auto-Fit Bounding Box for the selected zone
   const autoFit3D = useMemo(() => {
     let minX = Infinity;
@@ -1086,13 +1260,7 @@ export function J2ZoneProductionFloorMap({
     };
 
     // Ground Plate bounds
-    const groundPts = [
-      projectIso(0, 0, 0, ZONE_ISO_SCALE),
-      projectIso(16, 0, 0, ZONE_ISO_SCALE),
-      projectIso(16, 36, 0, ZONE_ISO_SCALE),
-      projectIso(0, 36, 0, ZONE_ISO_SCALE),
-    ];
-    for (const pt of groundPts) includePoint(pt);
+    for (const pt of zoneGround.points) includePoint(pt);
 
     // All blocks and outward labels
     for (const lCfg of linesForZone) {
@@ -1126,8 +1294,8 @@ export function J2ZoneProductionFloorMap({
 
     const width = maxX - minX;
     const height = maxY - minY;
-    const marginX = width * CAMERA_FIT_MARGIN_PERCENT;
-    const marginY = height * CAMERA_FIT_MARGIN_PERCENT;
+    const marginX = Math.round(width * CAMERA_FIT_MARGIN_PERCENT);
+    const marginY = Math.round(height * CAMERA_FIT_MARGIN_PERCENT);
 
     return {
       minX: minX - marginX,
@@ -1135,12 +1303,70 @@ export function J2ZoneProductionFloorMap({
       width: width + 2 * marginX,
       height: height + 2 * marginY,
     };
-  }, [linesForZone]);
+  }, [linesForZone, zoneGround]);
+
+  const fallback2D = useMemo(
+    () => ({
+      minX: 0,
+      minY: 0,
+      width: 920,
+      height: Math.max(400, 80 + Math.max(...linesForZone.map((l) => l.rowOrder), 1) * 44),
+    }),
+    [linesForZone],
+  );
+
+  const scene3dRef = useRef<SVGGElement>(null);
+  const scene2dRef = useRef<SVGGElement>(null);
+
+  const [viewBox3D, setViewBox3D] = useState<string>(
+    () => `${autoFit3D.minX} ${autoFit3D.minY} ${autoFit3D.width} ${autoFit3D.height}`,
+  );
+  const [viewBox2D, setViewBox2D] = useState<string>(
+    () => `${fallback2D.minX} ${fallback2D.minY} ${fallback2D.width} ${fallback2D.height}`,
+  );
+
+  const updateFittedViewBox = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (viewMode === "3d") {
+      const fitted = computeFittedViewBox(scene3dRef.current, container, autoFit3D);
+      setViewBox3D(fitted);
+    } else {
+      const fitted = computeFittedViewBox(scene2dRef.current, container, fallback2D);
+      setViewBox2D(fitted);
+    }
+  }, [viewMode, autoFit3D, fallback2D]);
+
+  useLayoutEffect(() => {
+    updateFittedViewBox();
+  }, [updateFittedViewBox]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => {
+      updateFittedViewBox();
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [updateFittedViewBox]);
+
+  useEffect(() => {
+    const img = new Image();
+    img.src = "/bop15-chain.webp";
+    img.onload = () => {
+      updateFittedViewBox();
+    };
+  }, [updateFittedViewBox]);
 
   return (
     <div
       ref={containerRef}
-      className={cn("relative flex h-full w-full flex-col min-h-[580px]", className)}
+      className={cn(
+        "relative flex min-h-0 flex-1 flex-col w-full",
+        className,
+      )}
     >
       {/* View Mode Controls */}
       <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
@@ -1183,24 +1409,19 @@ export function J2ZoneProductionFloorMap({
         </div>
       </div>
 
-      <ZoomableMap className="min-h-[580px] flex-1">
+      <ZoomableMap className="min-h-[480px] flex-1">
         {viewMode === "3d" ? (
           <svg
-            viewBox={`${autoFit3D.minX} ${autoFit3D.minY} ${autoFit3D.width} ${autoFit3D.height}`}
+            viewBox={viewBox3D}
+            preserveAspectRatio="xMidYMid meet"
             className="h-full w-full select-none"
             role="img"
           >
-            {/* 1. Ground Plate Layer */}
+            <g id="zone-scene-3d" ref={scene3dRef}>
+              {/* 1. Ground Plate Layer */}
             <g id="ground-layer">
               <polygon
-                points={[
-                  projectIso(0, 0, 0, ZONE_ISO_SCALE),
-                  projectIso(16, 0, 0, ZONE_ISO_SCALE),
-                  projectIso(16, 36, 0, ZONE_ISO_SCALE),
-                  projectIso(0, 36, 0, ZONE_ISO_SCALE),
-                ]
-                  .map((p) => `${p.x},${p.y}`)
-                  .join(" ")}
+                points={zoneGround.points.map((p) => `${p.x},${p.y}`).join(" ")}
                 fill="var(--grid)"
                 opacity={0.4}
               />
@@ -1225,7 +1446,8 @@ export function J2ZoneProductionFloorMap({
                       gap={MACHINE_GAP}
                       isoScale={ZONE_ISO_SCALE}
                       statusSource={(code) =>
-                        line?.machines.find((m) => m.code === code || m.id === code)?.status ?? "running"
+                        line?.machines.find((m) => m.code === code || m.id === code)?.status ??
+                        "running"
                       }
                       hoveredMachine={
                         hoveredMachine?.lineCode === "BOP15" ? hoveredMachine.machineCode : null
@@ -1519,67 +1741,79 @@ export function J2ZoneProductionFloorMap({
                 );
               })}
             </g>
+            </g>
           </svg>
         ) : (
           /* 2D Top-Down View for Zone */
-          <svg viewBox="0 0 920 680" className="h-full w-full bg-grid/10 select-none" role="img">
-            {linesForZone.map((lineCfg) => {
+          <svg
+            viewBox={viewBox2D}
+            preserveAspectRatio="xMidYMid meet"
+            className="h-full w-full bg-grid/10 select-none"
+            role="img"
+          >
+            <g id="zone-scene-2d" ref={scene2dRef}>
+              {linesForZone.map((lineCfg) => {
               const line = zone.lines.find((l) => l.id === lineCfg.code);
 
               if (lineCfg.code === "BOP15") {
                 return (
-                    <Bop15ChainSprite
-                        key={`2d-zone-line-${lineCfg.code}`}
-                        layoutX={lineCfg.zoneViewLayout.x}
-                        layoutY={lineCfg.zoneViewLayout.y}
-                        blockW={ZONE_BLOCK_SIZE.w}
-                        blockD={ZONE_BLOCK_SIZE.d}
-                        gap={MACHINE_GAP}
-                        isoScale={ZONE_ISO_SCALE}
-                        statusSource={(code) => line?.machines.find(m => m.code === code || m.id === code)?.status ?? "running"}
-                        hoveredMachine={hoveredMachine?.lineCode === "BOP15" ? hoveredMachine.machineCode : null}
-                        selectedMachine={null}
-                        onMachineHover={(mCode) => {
-                             if (mCode) {
-                                 const m = line?.machines.find(m => m.code === mCode || m.id === mCode);
-                                 const rect = containerRef.current?.getBoundingClientRect();
-                                 if (rect) {
-                                    setHoveredMachine({
-                                      lineCode: lineCfg.code,
-                                      machineCode: mCode,
-                                      machineName: m?.name ?? mCode,
-                                      zoneId: zone.id,
-                                      zoneName: zone.name,
-                                      lineOee: getMetrics(plantId, "line", lineCfg.code, resolved).oee,
-                                      machineOee: getMetrics(plantId, "machine", mCode, resolved).oee,
-                                      machineStatus: m?.status ?? "running",
-                                      clientX: 0,
-                                      clientY: 0,
-                                    });
-                                 }
-                             } else {
-                                 handleLineLeave();
-                             }
-                        }}
-                        onMachineClick={(mCode) => handleMachineClick(lineCfg.code, mCode)}
-                        onLineLeave={handleLineLeave}
-                        isDimmed={false}
-                    />
+                  <Bop15ChainSprite
+                    key={`2d-zone-line-${lineCfg.code}`}
+                    layoutX={lineCfg.zoneViewLayout.x}
+                    layoutY={lineCfg.zoneViewLayout.y}
+                    blockW={ZONE_BLOCK_SIZE.w}
+                    blockD={ZONE_BLOCK_SIZE.d}
+                    gap={MACHINE_GAP}
+                    isoScale={ZONE_ISO_SCALE}
+                    statusSource={(code) =>
+                      line?.machines.find((m) => m.code === code || m.id === code)?.status ??
+                      "running"
+                    }
+                    hoveredMachine={
+                      hoveredMachine?.lineCode === "BOP15" ? hoveredMachine.machineCode : null
+                    }
+                    selectedMachine={null}
+                    onMachineHover={(mCode) => {
+                      if (mCode) {
+                        const m = line?.machines.find((m) => m.code === mCode || m.id === mCode);
+                        const rect = containerRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setHoveredMachine({
+                            lineCode: lineCfg.code,
+                            machineCode: mCode,
+                            machineName: m?.name ?? mCode,
+                            zoneId: zone.id,
+                            zoneName: zone.name,
+                            lineOee: getMetrics(plantId, "line", lineCfg.code, resolved).oee,
+                            machineOee: getMetrics(plantId, "machine", mCode, resolved).oee,
+                            machineStatus: m?.status ?? "running",
+                            clientX: 0,
+                            clientY: 0,
+                          });
+                        }
+                      } else {
+                        handleLineLeave();
+                      }
+                    }}
+                    onMachineClick={(mCode) => handleMachineClick(lineCfg.code, mCode)}
+                    onLineLeave={handleLineLeave}
+                    isDimmed={false}
+                  />
                 );
               }
-              
+
               return (
                 <g key={`2d-zone-line-${lineCfg.code}`}>
                   {/* Line Pill */}
                   <g
                     transform={`translate(${
-                      (lineCfg.labelSide === "left"
+                      lineCfg.labelSide === "left"
                         ? (lineCfg.zoneViewLayout.x - 1.4) * 44 + 65
                         : (lineCfg.zoneViewLayout.x +
                             (lineCfg.machines.length - 1) * MACHINE_GAP +
                             1.4) *
                             44 +
-                          65)
+                          65
                     }, ${lineCfg.zoneViewLayout.y * 20 + 36})`}
                     className="cursor-pointer"
                     onClick={() => handleLinePillClick(lineCfg.code)}
@@ -1591,7 +1825,9 @@ export function J2ZoneProductionFloorMap({
                       height={20}
                       rx={10}
                       fill="var(--surface)"
-                      stroke={TIER_HEX[tierOf(getMetrics(plantId, "line", lineCfg.code, resolved).oee)]}
+                      stroke={
+                        TIER_HEX[tierOf(getMetrics(plantId, "line", lineCfg.code, resolved).oee)]
+                      }
                       strokeWidth={1.4}
                     />
                     <text
@@ -1612,10 +1848,8 @@ export function J2ZoneProductionFloorMap({
                     const status = machine?.status ?? "running";
 
                     const blockX =
-                      (lineCfg.zoneViewLayout.x + (mCfg.offsetX ?? mIdx * MACHINE_GAP)) * 44 +
-                      65;
-                    let blockY =
-                      (lineCfg.zoneViewLayout.y + (mCfg.offsetY ?? 0)) * 20 + 36;
+                      (lineCfg.zoneViewLayout.x + (mCfg.offsetX ?? mIdx * MACHINE_GAP)) * 44 + 65;
+                    let blockY = (lineCfg.zoneViewLayout.y + (mCfg.offsetY ?? 0)) * 20 + 36;
                     if (mCfg.subRow === "top") blockY -= 15;
 
                     const isHovered =
@@ -1701,6 +1935,7 @@ export function J2ZoneProductionFloorMap({
                 </g>
               );
             })}
+            </g>
           </svg>
         )}
       </ZoomableMap>

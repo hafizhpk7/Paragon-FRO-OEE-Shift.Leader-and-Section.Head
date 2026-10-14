@@ -54,8 +54,8 @@ export const ZONE_BLOCK_SIZE = {
   h: 14,
 };
 
-/** Camera & Viewport auto-fit margin percentage on all sides (8%) */
-export const CAMERA_FIT_MARGIN_PERCENT = 0.08;
+/** Camera & Viewport auto-fit margin percentage on all sides (4%) */
+export const CAMERA_FIT_MARGIN_PERCENT = 0.04;
 
 /** Default 3D Elevation Angle in degrees (steeper top-down angle reduces occlusion) */
 export const DEFAULT_ELEVATION_DEG = 52;
