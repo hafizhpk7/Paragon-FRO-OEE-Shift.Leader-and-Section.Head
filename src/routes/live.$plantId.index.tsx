@@ -25,8 +25,9 @@ import {
   StatusLegend,
 } from "@/components/oee/ui";
 import { EntityKpiCard } from "@/components/oee/entity-kpi-card";
+import { PlantAlarmsSection } from "@/components/oee/alarms-section";
 import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
-import { getPlant, plantAlarms, PLANT_PHASE_LABELS } from "@/lib/oee/data";
+import { getPlant, PLANT_PHASE_LABELS } from "@/lib/oee/data";
 import { usePeriod } from "@/lib/oee/period";
 import {
   getMetrics,
@@ -101,20 +102,6 @@ function PlantView() {
       </div>
     );
   }
-
-  const alarms = plantAlarms(plant);
-  const occurring = alarms.filter((a) => a.status === "OCCURRING").length;
-
-  const resolvedWording =
-    resolved.periodKey === "this-shift"
-      ? "resolved this shift"
-      : resolved.periodKey === "today"
-        ? "resolved today"
-        : resolved.periodKey === "this-week"
-          ? "resolved this week"
-          : resolved.periodKey === "this-month"
-            ? "resolved this month"
-            : "resolved in selected period";
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
@@ -297,55 +284,7 @@ function PlantView() {
             )}
           </Panel>
 
-          <Panel
-            title="Alarms"
-            subtitle={`${occurring} occurring · ${alarms.length - occurring} ${resolvedWording}`}
-            className="min-h-0 max-h-[420px] lg:max-h-none"
-            bodyClassName="p-0 overflow-hidden"
-          >
-            <div className="min-h-0 flex-1 w-full min-w-0 overflow-x-auto overflow-y-auto">
-              <table className="w-full min-w-[480px] text-[11px]">
-                <thead className="sticky top-0 bg-surface text-left text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-3 py-2 font-medium">Line</th>
-                    <th className="px-3 py-2 font-medium">Issue</th>
-                    <th className="px-3 py-2 font-medium">Start</th>
-                    <th className="px-3 py-2 font-medium">Duration</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {alarms.map((a) => (
-                    <tr key={a.id} className="border-b border-border/60">
-                      <td className="px-3 py-2 font-mono">{a.lineId}</td>
-                      <td className="px-3 py-2">{a.issue}</td>
-                      <td className="px-3 py-2 font-mono">{a.start}</td>
-                      <td className="px-3 py-2 font-mono">{a.durationMinutes} min</td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={cn(
-                            "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
-                            a.status === "OCCURRING"
-                              ? "bg-tier-bad/15 text-tier-bad"
-                              : "bg-grid text-muted-foreground",
-                          )}
-                        >
-                          {a.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {alarms.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="p-4 text-center text-muted-foreground">
-                        No alarms {resolvedWording}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+          <PlantAlarmsSection plant={plant} resolved={resolved} />
         </div>
       </main>
     </div>

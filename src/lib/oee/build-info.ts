@@ -1,6 +1,7 @@
-export const BUILD_ID = "r19 · 21 Oct 2026 08:30 WIB";
+export const BUILD_ID = "r20 · 21 Oct 2026 09:10 WIB";
 
 export const FEATURES = {
+  dynamicPeriodAlarms: true,
   periodFilterNew: true,
   comparisonSingleRow: true,
   liveClockChip: true,

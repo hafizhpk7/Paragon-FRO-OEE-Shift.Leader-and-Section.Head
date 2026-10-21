@@ -13,7 +13,8 @@ import {
 import { LineChainView3D } from "@/components/oee/three/line-chain-view-3d";
 import { Delta, EmptyState, KpiCard, PageHeader, Panel, StatusLegend } from "@/components/oee/ui";
 import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
-import { bucketsFor, getLine, getZone, lineAlarms, trendSeries } from "@/lib/oee/data";
+import { bucketsFor, getLine, getZone, trendSeries } from "@/lib/oee/data";
+import { LineAlarmsSection } from "@/components/oee/alarms-section";
 import { usePeriod } from "@/lib/oee/period";
 import {
   getMetrics,
@@ -108,7 +109,6 @@ function LineDetail() {
     actualRunRate,
     10,
   );
-  const alarms = lineAlarms(line);
 
   const compareLabel = resolved.compareLabel;
   const poOutputStr = activePO
@@ -244,42 +244,7 @@ function LineDetail() {
           </div>
         </Panel>
 
-        <Panel
-          title="Active Alarms"
-          subtitle="Shares the same source as Alarms on Plant View"
-          bodyClassName="p-0"
-        >
-          <ul className="divide-y divide-border">
-            {alarms.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2 text-[11px]">
-                <span
-                  className={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
-                    a.severity === "CRITICAL"
-                      ? "bg-tier-bad/15 text-tier-bad"
-                      : "bg-tier-warn/20 text-tier-warn",
-                  )}
-                >
-                  {a.severity}
-                </span>
-                <span className="font-mono">
-                  {a.lineId}·{a.machineId}
-                </span>
-                <span className="font-mono text-muted-foreground">{a.start}</span>
-                <span className="flex-1">{a.issue}</span>
-                <span className="font-mono text-muted-foreground">{a.durationMinutes} min</span>
-                <span
-                  className={cn(
-                    "font-semibold uppercase",
-                    a.status === "OCCURRING" ? "text-tier-bad" : "text-muted-foreground",
-                  )}
-                >
-                  {a.status}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
+        <LineAlarmsSection line={line} plantId={plantId} resolved={resolved} />
 
         {/* Trend Charts Section */}
         <div className="grid w-full shrink-0 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
