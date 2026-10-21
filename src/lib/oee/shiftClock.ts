@@ -67,8 +67,18 @@ export function formatDateWib(dateOrSecOrMs: Date | number): string {
   const wib = getWibDate(ms);
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
   ];
   const dName = days[wib.getUTCDay()] ?? "";
   const dNum = String(wib.getUTCDate()).padStart(2, "0");
@@ -101,11 +111,11 @@ export function getShiftInfo(refDate: Date = new Date()): ShiftInfo {
   const ms = refDate.getTime();
   const wib = getWibDate(ms);
   const hour = wib.getUTCHours();
-  
+
   let code: ShiftCode = "A";
   let startHour = 7;
   let endHour = 15;
-  
+
   // Shift C starts at 23:00 WIB
   if (hour >= 7 && hour < 15) {
     code = "A";
@@ -132,7 +142,15 @@ export function getShiftInfo(refDate: Date = new Date()): ShiftInfo {
   const label = `Shift ${code} · ${String(startHour).padStart(2, "0")}:00-${String((startHour + 8) % 24).padStart(2, "0")}:59 WIB`;
 
   // Calculate start epoch seconds
-  const startWibMs = Date.UTC(wibDateForDateKey.getUTCFullYear(), wibDateForDateKey.getUTCMonth(), wibDateForDateKey.getUTCDate(), startHour, 0, 0, 0);
+  const startWibMs = Date.UTC(
+    wibDateForDateKey.getUTCFullYear(),
+    wibDateForDateKey.getUTCMonth(),
+    wibDateForDateKey.getUTCDate(),
+    startHour,
+    0,
+    0,
+    0,
+  );
   const startSec = Math.floor((startWibMs - WIB_OFFSET_MS) / 1000);
   const endSec = startSec + SHIFT_SECONDS;
 

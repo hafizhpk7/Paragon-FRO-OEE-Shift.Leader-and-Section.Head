@@ -457,9 +457,13 @@ export function MetricBar({ label, value }: { label: string; value: number }) {
   const tier = tierOf(value);
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline justify-between text-[11px]">
-        <span className="text-muted-foreground">{label}</span>
-        <span className={cn("font-mono", TIER_TEXT[tier])}>{value.toFixed(1)}%</span>
+      <div className="flex items-baseline justify-between gap-2 text-[11px]">
+        <span className="min-w-0 truncate text-muted-foreground" title={label}>
+          {label}
+        </span>
+        <span className={cn("shrink-0 font-mono font-medium tabular-nums", TIER_TEXT[tier])}>
+          {value.toFixed(1)}%
+        </span>
       </div>
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-grid">
         <div

@@ -111,9 +111,9 @@ export function AppSidebar() {
             className="flex min-w-0 items-center gap-3"
           >
             <img
-              src="/image-removebg-preview.png"
+              src="/paragon-logo-new.png"
               alt="ParagonCorp Logo"
-              className="h-8 w-auto max-h-10 shrink-0 object-contain"
+              className="h-10 w-10 shrink-0 object-contain p-1"
             />
             <div className="min-w-0">
               <span className="block truncate text-sm font-semibold">Paragon OEE FRO</span>
@@ -290,9 +290,9 @@ export function AppSidebar() {
             className="flex min-w-0 items-center gap-3"
           >
             <img
-              src="/image-removebg-preview.png"
+              src="/paragon-logo-new.png"
               alt="ParagonCorp Logo"
-              className="h-8 w-auto max-h-10 shrink-0 object-contain"
+              className="h-10 w-10 shrink-0 object-contain p-1"
             />
             {!isCollapsed && (
               <span className="min-w-0">

@@ -3,6 +3,7 @@ import { useMemo } from "react";
 
 import { GroupSiteMap, type PlantLineStats } from "@/components/oee/group-site-map";
 import { Delta, Donut, MetricBar, PageHeader, Panel } from "@/components/oee/ui";
+import { EntityKpiCard } from "@/components/oee/entity-kpi-card";
 import { TIER_TEXT, tierOf } from "@/lib/oee/config";
 import { PLANTS, PLANT_PHASE_LABELS, type Plant } from "@/lib/oee/data";
 import { usePeriod } from "@/lib/oee/period";
@@ -90,6 +91,9 @@ export function MultiPlantView() {
     return map;
   }, []);
 
+  const operationalPlants = useMemo(() => PLANTS.filter((p) => p.isOperational), []);
+  const upcomingPlants = useMemo(() => PLANTS.filter((p) => !p.isOperational), []);
+
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
       <PageHeader
@@ -98,16 +102,16 @@ export function MultiPlantView() {
       />
       <main className="flex flex-1 flex-col gap-3 p-3 sm:p-4 min-w-0 max-w-full overflow-x-hidden">
         {/* Top Summary & Plant KPI Cards */}
-        <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-4 rounded-lg border border-border bg-surface p-3 sm:p-4 transition-colors">
-          {/* Group Aggregate Overview */}
-          <div className="flex flex-wrap sm:flex-nowrap items-center justify-center sm:justify-start gap-4 pb-3 xl:pb-0 xl:pr-4 border-b xl:border-b-0 xl:border-r border-border/60 shrink-0">
+        <div className="flex flex-col 2xl:flex-row items-stretch gap-4 rounded-lg border border-border bg-surface p-3 sm:p-4 transition-colors">
+          {/* Group Aggregate Overview: row above cards below 2xl, left block at 2xl+ */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center justify-center gap-4 pb-4 2xl:pb-0 2xl:pr-4 border-b 2xl:border-b-0 2xl:border-r border-border/60 2xl:w-[360px] 2xl:shrink-0">
             <div className="flex flex-col items-center shrink-0">
               <Donut value={groupMetrics.oee} size={92} label="Group OEE" />
               <div className="mt-1 flex flex-col items-center text-center">
                 <Delta value={groupMetrics.deltaOee} label={resolved.compareLabel} />
               </div>
             </div>
-            <div className="grid w-full sm:w-44 gap-1.5 min-w-36">
+            <div className="grid w-full sm:w-48 gap-1.5 min-w-36">
               <MetricBar label="Availability" value={groupMetrics.availability} />
               <MetricBar label="Performance" value={groupMetrics.performance} />
               <MetricBar label="Quality" value={groupMetrics.quality} />
@@ -115,87 +119,62 @@ export function MultiPlantView() {
           </div>
 
           {/* Plant KPI Cards: Operational & Upcoming */}
-          <div className="grid w-full flex-1 gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-5 min-w-0">
-            {PLANTS.map((p) => {
-              if (!p.isOperational) {
-                // Upcoming Plants (Klang, Batang)
+          <div className="flex flex-1 flex-col gap-3 min-w-0">
+            {/* Operational Plants (Jatake 1, Jatake 2, Jatake 4) */}
+            <div className="grid w-full gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] min-w-0">
+              {operationalPlants.map((p) => {
+                const livePlant = plantMetrics[p.id] ?? p;
                 return (
-                  <div
+                  <EntityKpiCard
                     key={p.id}
-                    className="flex flex-col justify-between rounded-lg border border-dashed border-border bg-surface/40 p-3 text-left transition-colors select-none min-w-0"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-1.5 pb-1">
-                        <p className="truncate text-xs font-semibold text-foreground/80">
-                          {p.name}
-                        </p>
-                        <span className="rounded bg-muted/80 px-1.5 py-0.5 font-mono text-[9px] font-medium text-muted-foreground shrink-0">
-                          {PLANT_PHASE_LABELS[p.phase]}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground font-sans truncate">
-                        {p.region}
-                      </p>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-2 text-xs">
-                      <span className="text-[11px] text-muted-foreground font-medium">
-                        Plant OEE
-                      </span>
-                      <span className="font-mono text-xs font-bold text-muted-foreground">—</span>
-                    </div>
-
-                    <p className="mt-1 text-[10px] text-muted-foreground/75 italic">
-                      Operational data not available
-                    </p>
-                  </div>
+                    name={p.name}
+                    subtitle={p.block}
+                    donutValue={livePlant.oee}
+                    donutLabel={p.id}
+                    oeeValue={livePlant.oee}
+                    deltaValue={livePlant.deltaOee}
+                    compareLabel={resolved.compareLabel}
+                    availability={livePlant.availability}
+                    performance={livePlant.performance}
+                    quality={livePlant.quality}
+                    dataMetric={`plant-oee-${p.id}`}
+                    dataRaw={livePlant.oee}
+                    onClick={() => navigate({ to: "/live/$plantId", params: { plantId: p.id } })}
+                  />
                 );
-              }
+              })}
+            </div>
 
-              // Operational Plants (Jatake 1, Jatake 2, Jatake 4)
-              const livePlant = plantMetrics[p.id] ?? p;
-              const deltaVal = livePlant.deltaOee;
-
-              return (
-                <button
+            {/* Upcoming Plants (Klang, Batang) */}
+            <div className="grid w-full gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] min-w-0">
+              {upcomingPlants.map((p) => (
+                <div
                   key={p.id}
-                  type="button"
-                  onClick={() => navigate({ to: "/live/$plantId", params: { plantId: p.id } })}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-surface p-2.5 text-left transition-all hover:border-primary hover:shadow-sm cursor-pointer min-w-0"
+                  className="flex flex-col justify-between rounded-lg border border-dashed border-border bg-surface/40 p-3 text-left transition-colors select-none min-w-0"
                 >
-                  <div className="flex flex-col items-center shrink-0">
-                    <Donut value={livePlant.oee} size={58} label={p.id} />
-                    <div className="mt-1 flex flex-col items-center text-center">
-                      <Delta value={deltaVal} label={resolved.compareLabel} />
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center justify-between gap-1">
-                      <p className="truncate text-xs font-semibold text-foreground">{p.name}</p>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                        {p.block}
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1">
+                      <h4 className="text-xs font-semibold text-foreground/80 leading-snug">
+                        {p.name}
+                      </h4>
+                      <span className="rounded bg-muted/80 px-1.5 py-0.5 font-mono text-[9px] font-medium text-muted-foreground shrink-0">
+                        {PLANT_PHASE_LABELS[p.phase]}
                       </span>
                     </div>
-                    <div className="flex items-baseline justify-between">
-                      <span className="text-[10px] text-muted-foreground">OEE</span>
-                      <span
-                        data-metric={`plant-oee-${p.id}`}
-                        data-raw={livePlant.oee}
-                        className={cn(
-                          "font-mono text-xs font-bold",
-                          TIER_TEXT[tierOf(livePlant.oee)],
-                        )}
-                      >
-                        {livePlant.oee.toFixed(1)}%
-                      </span>
-                    </div>
-                    <MetricBar label="A" value={livePlant.availability} />
-                    <MetricBar label="P" value={livePlant.performance} />
-                    <MetricBar label="Q" value={livePlant.quality} />
+                    <p className="text-[11px] text-muted-foreground font-sans">{p.region}</p>
                   </div>
-                </button>
-              );
-            })}
+
+                  <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-2 text-xs">
+                    <span className="text-[11px] text-muted-foreground font-medium">Plant OEE</span>
+                    <span className="font-mono text-xs font-bold text-muted-foreground">—</span>
+                  </div>
+
+                  <p className="mt-1 text-[10px] text-muted-foreground/75 italic">
+                    Operational data not available
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 

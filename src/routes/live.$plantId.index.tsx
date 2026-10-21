@@ -24,6 +24,7 @@ import {
   Panel,
   StatusLegend,
 } from "@/components/oee/ui";
+import { EntityKpiCard } from "@/components/oee/entity-kpi-card";
 import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { getPlant, plantAlarms, PLANT_PHASE_LABELS } from "@/lib/oee/data";
 import { usePeriod } from "@/lib/oee/period";
@@ -137,35 +138,32 @@ function PlantView() {
               <MetricBar label="Quality" value={plantMetrics.quality} />
             </div>
           </div>
-          <div className="grid w-full flex-1 gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid w-full flex-1 gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 min-w-0">
             {plant.zones.map((z) => {
               const liveZone = zoneMetrics[z.id] ?? z;
               const deltaVal = liveZone.deltaOee;
               return (
-                <button
+                <EntityKpiCard
                   key={z.id}
-                  type="button"
+                  name={z.name}
+                  donutValue={liveZone.oee}
+                  donutLabel={z.id}
+                  oeeValue={liveZone.oee}
+                  deltaValue={deltaVal}
+                  compareLabel={resolved.compareLabel}
+                  availability={liveZone.availability}
+                  performance={liveZone.performance}
+                  quality={liveZone.quality}
+                  dataMetric={`zone-oee-${z.id}`}
+                  dataRaw={liveZone.oee}
+                  className="min-w-[260px]"
                   onClick={() =>
                     navigate({
                       to: "/live/$plantId/$zoneId",
                       params: { plantId: plant.id, zoneId: z.id },
                     })
                   }
-                  className="flex items-center gap-3 rounded-lg border border-border p-2.5 text-left transition-colors hover:border-primary cursor-pointer"
-                >
-                  <div className="flex flex-col items-center">
-                    <Donut value={liveZone.oee} size={58} label={z.id} />
-                    <div className="mt-1 flex flex-col items-center text-center">
-                      <Delta value={deltaVal} label={resolved.compareLabel} />
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <p className="truncate text-xs font-semibold">{z.name}</p>
-                    <MetricBar label="A" value={liveZone.availability} />
-                    <MetricBar label="P" value={liveZone.performance} />
-                    <MetricBar label="Q" value={liveZone.quality} />
-                  </div>
-                </button>
+                />
               );
             })}
           </div>
