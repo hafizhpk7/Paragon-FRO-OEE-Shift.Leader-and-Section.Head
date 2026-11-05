@@ -24,7 +24,7 @@ import {
   StatusLegend,
   StatusPill,
 } from "@/components/oee/ui";
-import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
+import { MACHINE_OUTPUT_LABEL, STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { getZone, type Line } from "@/lib/oee/data";
 import { useApp } from "@/lib/oee/app-context";
 import { usePeriod } from "@/lib/oee/period";
@@ -392,7 +392,7 @@ function ZoneContent({
                   <dd className="font-mono">{activeLine.oee.toFixed(1)}%</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Output</dt>
+                  <dt className="text-muted-foreground">{MACHINE_OUTPUT_LABEL}</dt>
                   <dd className="font-mono">
                     {activeLine.outputActual.toLocaleString()} /{" "}
                     {activeLine.outputTarget.toLocaleString()}

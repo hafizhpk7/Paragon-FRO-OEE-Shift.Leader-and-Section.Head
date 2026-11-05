@@ -23,8 +23,8 @@ import {
   type ShiftSnapshot,
   type TimelineWindow,
 } from "@/lib/oee/machineEvents";
-import { isPeriodEligible } from "@/lib/oee/lossClarificationPolicy";
 import type { ResolvedPeriod } from "@/lib/oee/period";
+import { MACHINE_OUTPUT_LABEL } from "@/lib/oee/config";
 import { cn } from "@/lib/utils";
 
 export interface MachineEventsProps {
@@ -61,8 +61,6 @@ export function MachineEvents({
   className,
 }: MachineEventsProps) {
   const [rangeView, setRangeView] = useState<RangeView>("full");
-  const now = new Date();
-  const isEligible = !resolved || isPeriodEligible(resolved, now);
   const [hoveredX, setHoveredX] = useState<number | null>(null);
   const [hoveredWindow, setHoveredWindow] = useState<TimelineWindow | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<MachineEvent | null>(null);
@@ -147,8 +145,7 @@ export function MachineEvents({
             output = Math.round((output * pct) / 100);
           }
 
-          const classifiedSec = activeEv.causes.reduce((sum, c) => sum + c.durationSec, 0);
-          const needsReason = activeType !== "run" && classifiedSec < activeEv.durationSec;
+          const needsReason = activeType !== "run" && !activeEv.isTagged;
 
           return {
             ...w,
@@ -167,14 +164,22 @@ export function MachineEvents({
   // ResizeObserver for chart width
   useEffect(() => {
     if (!containerRef.current) return;
+    let animFrame: number;
     const observer = new ResizeObserver((entries) => {
       if (entries[0]) {
         const w = entries[0].contentRect.width;
-        if (w > 0) setChartWidth(w);
+        if (w > 0) {
+          animFrame = requestAnimationFrame(() => {
+            setChartWidth(w);
+          });
+        }
       }
     });
     observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(animFrame);
+      observer.disconnect();
+    };
   }, [isExpanded]);
 
   // 4. Dynamic X-Axis domain boundaries:
@@ -391,32 +396,25 @@ export function MachineEvents({
               <span className="font-mono font-bold">{snapshot.totalLossMin}m</span>
             </div>
             <div>
-              <span className="text-[10px] text-muted-foreground uppercase">Output: </span>
+              <span className="text-[10px] text-muted-foreground uppercase">
+                {MACHINE_OUTPUT_LABEL}:{" "}
+              </span>
               <span className="font-mono font-bold">
                 {snapshot.totalOutput.toLocaleString()} pcs
               </span>
             </div>
             <div>
-              <span className="text-[10px] text-muted-foreground uppercase">Unclassified: </span>
-              {isEligible ? (
-                <span
-                  className={cn(
-                    "font-mono font-bold",
-                    snapshot.unclassifiedCount > 0 ? "text-destructive" : "text-tier-good",
-                  )}
-                  data-metric="unclassified-count"
-                >
-                  {snapshot.unclassifiedCount}
-                </span>
-              ) : (
-                <span
-                  className="font-mono font-bold text-muted-foreground cursor-help"
-                  title="Loss clarification is available for the last 7 days only"
-                  data-metric="unclassified-count"
-                >
-                  —
-                </span>
-              )}
+              <span className="text-[10px] text-muted-foreground uppercase">NOT TAGGED: </span>
+              <span
+                className={cn(
+                  "font-mono font-bold",
+                  snapshot.notTaggedCount > 0 ? "text-amber-500" : "text-tier-good",
+                )}
+                data-metric="unclassified-count"
+                data-raw={snapshot.notTaggedCount}
+              >
+                {snapshot.notTaggedCount}
+              </span>
             </div>
           </div>
 
@@ -528,7 +526,7 @@ export function MachineEvents({
 
           <div>
             <span className="text-[10px] text-muted-foreground">
-              Output · {snapshot.outputVsPlanPct}% of plan:{" "}
+              {MACHINE_OUTPUT_LABEL} · {snapshot.outputVsPlanPct}% of plan:{" "}
             </span>
             <span className="font-mono font-bold text-foreground">
               {snapshot.totalOutput.toLocaleString()} pcs
@@ -543,26 +541,17 @@ export function MachineEvents({
           </div>
 
           <div>
-            <span className="text-[10px] text-muted-foreground">Unclassified: </span>
-            {isEligible ? (
-              <span
-                className={cn(
-                  "font-mono font-bold",
-                  snapshot.unclassifiedCount > 0 ? "text-destructive" : "text-tier-good",
-                )}
-                data-metric="unclassified-count"
-              >
-                {snapshot.unclassifiedCount} losses
-              </span>
-            ) : (
-              <span
-                className="font-mono font-bold text-muted-foreground cursor-help"
-                title="Loss clarification is available for the last 7 days only"
-                data-metric="unclassified-count"
-              >
-                —
-              </span>
-            )}
+            <span className="text-[10px] text-muted-foreground">NOT TAGGED: </span>
+            <span
+              className={cn(
+                "font-mono font-bold",
+                snapshot.notTaggedCount > 0 ? "text-amber-500" : "text-tier-good",
+              )}
+              data-metric="unclassified-count"
+              data-raw={snapshot.notTaggedCount}
+            >
+              {snapshot.notTaggedCount} losses
+            </span>
           </div>
 
           <button
@@ -629,8 +618,8 @@ export function MachineEvents({
             <span>Planned stop</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-xs bg-destructive hatch-needs-reason border border-border" />
-            <span>Needs reason</span>
+            <span className="size-2.5 rounded-xs bg-amber-500 hatch-needs-reason border border-border" />
+            <span>Not Tagged Yet</span>
           </div>
         </div>
 
@@ -652,7 +641,7 @@ export function MachineEvents({
             onClick={handleChartClick}
           >
             <defs>
-              {/* Needs reason diagonal hatch pattern */}
+              {/* Not Tagged diagonal hatch pattern */}
               <pattern
                 id="eventHatch"
                 width="8"
@@ -664,9 +653,9 @@ export function MachineEvents({
               </pattern>
             </defs>
 
-            {/* Row 1 Label: Output */}
+            {/* Row 1 Label: Machine Output */}
             <text x={10} y={16} className="fill-muted-foreground text-[10px] font-bold uppercase">
-              Output
+              {MACHINE_OUTPUT_LABEL}
             </text>
 
             {/* Row 2 Label: Speed ppm */}

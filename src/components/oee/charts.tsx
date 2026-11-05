@@ -413,61 +413,101 @@ export function ParetoChart({
   );
 }
 
-/** OEE Waterfall — structure per BR 2.3.3; "Unutilized" renamed "Idle, no order". */
+/** OEE Waterfall — structure per standard cascading logic. */
 export function Waterfall({
   milestones,
   losses,
 }: {
-  milestones: { label: string; value: number }[];
+  milestones?: { label: string; value: number }[];
   losses: { label: string; value: number; group: string }[];
 }) {
-  const max = milestones[0]?.value ?? 1;
+  const calendarTime = milestones?.find((m) => m.label === "Calendar Time")?.value ?? 1440;
+  const max = calendarTime > 0 ? calendarTime : 1440;
+
   const groupColor: Record<string, string> = {
     Loading: "var(--loss-loading)",
     Availability: "var(--loss-availability)",
     Performance: "var(--loss-performance)",
     Quality: "var(--loss-quality)",
   };
-  const stageLosses = [
-    losses.filter((loss) => loss.group === "Loading"),
-    losses.filter((loss) => loss.group === "Availability"),
-    losses.filter((loss) => loss.group === "Performance"),
-    losses.filter((loss) => loss.group === "Quality"),
+
+  const loadingLosses = losses.filter((loss) => loss.group === "Loading");
+  const availabilityLosses = losses.filter((loss) => loss.group === "Availability");
+  const performanceLosses = losses.filter((loss) => loss.group === "Performance");
+  const qualityLosses = losses.filter((loss) => loss.group === "Quality");
+
+  const sumLoading = loadingLosses.reduce((sum, l) => sum + l.value, 0);
+  const sumAvailability = availabilityLosses.reduce((sum, l) => sum + l.value, 0);
+  const sumPerformance = performanceLosses.reduce((sum, l) => sum + l.value, 0);
+  const sumQuality = qualityLosses.reduce((sum, l) => sum + l.value, 0);
+
+  // Sequentially calculate each stage from losses
+  const scheduledTime = calendarTime - sumLoading;
+  const grossOperatingTime = scheduledTime - sumAvailability;
+  const netOperatingTime = grossOperatingTime - sumPerformance;
+  const effectiveTime = netOperatingTime - sumQuality;
+
+  const stages = [
+    {
+      group: "Loading",
+      label: "Calendar Time",
+      value: calendarTime,
+      losses: loadingLosses,
+      showPct: false,
+    },
+    {
+      group: "Availability",
+      label: "Scheduled Time",
+      value: scheduledTime,
+      losses: availabilityLosses,
+      showPct: true,
+    },
+    {
+      group: "Performance",
+      label: "Gross Operating Time",
+      value: grossOperatingTime,
+      losses: performanceLosses,
+      showPct: true,
+    },
+    {
+      group: "Quality",
+      label: "Net Operating Time",
+      value: netOperatingTime,
+      losses: qualityLosses,
+      showPct: true,
+    },
   ];
-  const stageNames = ["Loading", "Availability", "Performance", "Quality"];
-  const effective = milestones[4];
+
+  const effectivePct = Math.round((effectiveTime / max) * 1000) / 10;
 
   return (
     <div className="flex h-full min-h-[580px] flex-col">
-      {stageNames.map((stage, stageIndex) => {
-        const milestone = milestones[stageIndex];
-        if (!milestone) return null;
-        let remaining = milestone.value;
-        const items = stageLosses[stageIndex] ?? [];
-        const milestonePct = Math.round((milestone.value / max) * 1000) / 10;
+      {stages.map((stage) => {
+        let remaining = stage.value;
+        const stagePct = Math.round((stage.value / max) * 1000) / 10;
 
         return (
           <div
-            key={stage}
+            key={stage.group}
             className="grid flex-1 grid-cols-[34px_minmax(0,1fr)] border-b border-border/70 last:border-b-0"
           >
             <div className="relative flex items-center justify-center border-r border-border">
               <span className="-rotate-90 whitespace-nowrap text-[10px] font-semibold text-muted-foreground">
-                {stage}
+                {stage.group}
               </span>
             </div>
             <div className="flex min-w-0 flex-col justify-evenly gap-2 px-4 py-2.5">
               <div className="relative h-8 w-full overflow-hidden rounded-md bg-muted">
                 <div
                   className="absolute inset-y-0 left-0 bg-loss-milestone"
-                  style={{ width: `${milestonePct}%` }}
+                  style={{ width: `${Math.min(100, Math.max(0, stagePct))}%` }}
                 />
                 <span className="absolute inset-y-0 left-3 flex items-center text-[11px] font-semibold">
-                  {milestone.label} · {milestone.value} min
-                  {stageIndex > 0 ? ` (${milestonePct.toFixed(1)}%)` : ""}
+                  {stage.label} · {stage.value} min
+                  {stage.showPct ? ` (${stagePct.toFixed(1)}%)` : ""}
                 </span>
               </div>
-              {items.map((loss) => {
+              {stage.losses.map((loss) => {
                 const before = remaining;
                 remaining = Math.max(0, remaining - loss.value);
                 const left = (remaining / max) * 100;
@@ -479,7 +519,7 @@ export function Waterfall({
                       style={{
                         left: `${left}%`,
                         width: `${width}%`,
-                        background: groupColor[stage],
+                        background: groupColor[stage.group],
                       }}
                     />
                     <span
@@ -495,26 +535,20 @@ export function Waterfall({
           </div>
         );
       })}
-      {effective && (
-        <div className="grid grid-cols-[34px_minmax(0,1fr)]">
-          <div className="border-r border-border" />
-          <div className="px-4 pb-2.5 pt-3">
-            <div className="relative h-8 w-full overflow-hidden rounded-md bg-muted">
-              <div
-                className="absolute inset-y-0 left-0 bg-loss-effective"
-                style={{ width: `${(effective.value / max) * 100}%` }}
-              />
-              <span
-                className="absolute inset-y-0 flex items-center whitespace-nowrap pl-3 text-[11px] font-semibold text-loss-effective-foreground"
-                style={{ left: `${(effective.value / max) * 100}%` }}
-              >
-                {effective.label} · {effective.value} min (
-                {((effective.value / max) * 100).toFixed(1)}%)
-              </span>
-            </div>
+      <div className="grid grid-cols-[34px_minmax(0,1fr)]">
+        <div className="border-r border-border" />
+        <div className="px-4 pb-2.5 pt-3">
+          <div className="relative h-8 w-full overflow-hidden rounded-md bg-muted">
+            <div
+              className="absolute inset-y-0 left-0 bg-loss-effective"
+              style={{ width: `${Math.min(100, Math.max(0, (effectiveTime / max) * 100))}%` }}
+            />
+            <span className="absolute inset-y-0 left-3 flex items-center text-[11px] font-semibold text-loss-effective-foreground">
+              Effective Time · {effectiveTime} min ({effectivePct.toFixed(1)}%)
+            </span>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -574,11 +608,15 @@ function LossTreeRow({
   const tones: Record<string, string> = {
     Breakdown: "var(--loss-breakdown)",
     "Minor Stop": "var(--loss-minor-stop)",
+    Setup: "var(--loss-setup)",
+    "Setup / Changeover": "var(--loss-setup)",
     "Setup + Idle": "var(--loss-setup)",
     "Speed Loss": "var(--loss-speed)",
     Reject: "var(--loss-reject)",
+    "Scrap / Defect": "var(--loss-reject)",
     Rework: "var(--loss-rework)",
     "Planned Downtime": "var(--loss-planned)",
+    Unscheduled: "var(--loss-loading)",
   };
   const baseTone = tones[rootLabel] ?? "var(--primary)";
   const barTone =

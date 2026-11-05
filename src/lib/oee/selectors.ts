@@ -166,6 +166,73 @@ declare global {
   }
 }
 
+export interface MachineNotTaggedState {
+  notTaggedCount: number;
+  taggedCount: number;
+  allCount: number;
+  notTaggedDurationSec: number;
+  taggedDurationSec: number;
+  totalDurationSec: number;
+  activeStopNotTagged: boolean;
+}
+
+/**
+ * Single source of truth selector for Machine Loss Tagging counts.
+ * Used by Loss Clarification header, Not Tagged tab, Machine Events counter, and Active Stop banner.
+ */
+export function selectMachineNotTaggedState(
+  events: {
+    type: string;
+    durationSec: number;
+    isTagged?: boolean;
+    causes?: { l2CategoryName?: string }[];
+    isOngoing?: boolean;
+  }[],
+  activeStopEvent?: { isTagged?: boolean; causes?: { l2CategoryName?: string }[] },
+): MachineNotTaggedState {
+  const lossEvents = events.filter((e) => e.type !== "run");
+
+  let notTaggedCount = 0;
+  let taggedCount = 0;
+  let notTaggedDurationSec = 0;
+  let taggedDurationSec = 0;
+
+  for (const e of lossEvents) {
+    const isTagged = Boolean(
+      e.isTagged &&
+        e.causes &&
+        e.causes.length > 0 &&
+        e.causes[0].l2CategoryName !== "Not Tagged Yet",
+    );
+    if (isTagged) {
+      taggedCount++;
+      taggedDurationSec += e.durationSec;
+    } else {
+      notTaggedCount++;
+      notTaggedDurationSec += e.durationSec;
+    }
+  }
+
+  const activeStopNotTagged = activeStopEvent
+    ? !Boolean(
+        activeStopEvent.isTagged &&
+          activeStopEvent.causes &&
+          activeStopEvent.causes.length > 0 &&
+          activeStopEvent.causes[0].l2CategoryName !== "Not Tagged Yet",
+      )
+    : false;
+
+  return {
+    notTaggedCount,
+    taggedCount,
+    allCount: lossEvents.length,
+    notTaggedDurationSec,
+    taggedDurationSec,
+    totalDurationSec: notTaggedDurationSec + taggedDurationSec,
+    activeStopNotTagged,
+  };
+}
+
 export function runParityAudit(): ParityMismatch[] {
   if (typeof document === "undefined") return [];
 
@@ -223,6 +290,26 @@ export function runParityAudit(): ParityMismatch[] {
     }
   }
 
+  // 4. Parity check between Machine Not Tagged Tab count and Machine Events Not Tagged counter
+  const notTaggedTab = document.querySelector("[data-metric='unclassified-tab-count']") ||
+    document.querySelector("[data-metric='not-tagged-tab-count']");
+  const notTaggedEvents = document.querySelector("[data-metric='unclassified-count']") ||
+    document.querySelector("[data-metric='not-tagged-count']");
+
+  if (notTaggedTab && notTaggedEvents) {
+    const tabVal = parseFloat(notTaggedTab.getAttribute("data-raw") || "");
+    const evVal = parseFloat(notTaggedEvents.getAttribute("data-raw") || "");
+    if (!isNaN(tabVal) && !isNaN(evVal) && tabVal !== evVal) {
+      mismatches.push({
+        key: "not-tagged-parity",
+        expected: tabVal,
+        actualValues: [tabVal, evVal],
+        elementsCount: 2,
+        message: `Loss Clarification tab count (${tabVal}) differs from Machine Events counter (${evVal})`,
+      });
+    }
+  }
+
   if (mismatches.length > 0) {
     console.warn("[OEE Parity Audit] Found mismatches:", mismatches);
   } else {
@@ -239,3 +326,4 @@ export function runParityAudit(): ParityMismatch[] {
 if (typeof window !== "undefined") {
   window.runParityAudit = runParityAudit;
 }
+

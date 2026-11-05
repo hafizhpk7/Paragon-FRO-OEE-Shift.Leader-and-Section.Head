@@ -5,7 +5,6 @@ import { useEffect } from "react";
 import { AppSidebar } from "@/components/oee/app-sidebar";
 import { AppProvider, useApp } from "@/lib/oee/app-context";
 import { Toaster } from "@/components/ui/sonner";
-import { TOAST_POSITION } from "@/lib/oee/lossClarificationPolicy";
 import { cn } from "@/lib/utils";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
@@ -127,7 +126,7 @@ function DashboardShell() {
       >
         <Outlet />
       </div>
-      <Toaster position={TOAST_POSITION} richColors closeButton duration={5000} />
+      <Toaster position="bottom-right" richColors closeButton duration={5000} />
     </div>
   );
 }

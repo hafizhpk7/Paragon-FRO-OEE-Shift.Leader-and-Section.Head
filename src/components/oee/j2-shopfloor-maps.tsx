@@ -1342,11 +1342,17 @@ export function J2ZoneProductionFloorMap({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    let animFrame: number;
     const ro = new ResizeObserver(() => {
-      updateFittedViewBox();
+      animFrame = requestAnimationFrame(() => {
+        updateFittedViewBox();
+      });
     });
     ro.observe(container);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(animFrame);
+      ro.disconnect();
+    };
   }, [updateFittedViewBox]);
 
   useEffect(() => {

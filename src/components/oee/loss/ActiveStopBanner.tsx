@@ -1,14 +1,14 @@
 import React from "react";
-import { AlertCircle, AlertTriangle, ArrowRight, Info, Wrench } from "lucide-react";
+import { AlertCircle, AlertTriangle, Info, Wrench } from "lucide-react";
 import type { ShiftSnapshot } from "@/lib/oee/machineEvents";
 import { formatDuration } from "@/lib/oee/shiftClock";
+import { NOT_TAGGED_LABEL } from "@/lib/oee/plcAlarmMap";
 import { cn } from "@/lib/utils";
 
 export interface ActiveStopBannerProps {
   lineId: string;
   machineCode: string;
   snapshot: ShiftSnapshot;
-  onClarifyNow: () => void;
   className?: string;
 }
 
@@ -16,7 +16,6 @@ export function ActiveStopBanner({
   lineId,
   machineCode,
   snapshot,
-  onClarifyNow,
   className,
 }: ActiveStopBannerProps) {
   const activeStop = snapshot.activeStop;
@@ -27,6 +26,11 @@ export function ActiveStopBanner({
   const severity = activeStop.severity;
   const isCritical = severity === "CRITICAL";
   const isWarning = severity === "WARNING";
+  const isTagged = Boolean(
+    activeStop.isTagged &&
+      activeStop.l2Category &&
+      activeStop.l2Category !== NOT_TAGGED_LABEL,
+  );
 
   return (
     <div
@@ -97,16 +101,35 @@ export function ActiveStopBanner({
           </span>
         </div>
 
-        {/* Classification Breadcrumb or Awaiting Reason */}
-        {activeStop.isClassified && activeStop.lossBreadcrumb ? (
-          <span className="hidden xl:inline-flex items-center gap-1 rounded-full bg-surface px-2.5 py-0.5 text-[10px] font-medium border border-border text-muted-foreground">
-            <Wrench className="size-3 text-primary" />
-            <span className="truncate max-w-[220px]">{activeStop.lossBreadcrumb}</span>
-          </span>
+        {/* Classification L2/L3 or Not Tagged Yet + Source Badge */}
+        {isTagged ? (
+          <div className="hidden sm:inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-surface px-2.5 py-0.5 text-[10px] font-medium border border-border text-foreground">
+              <Wrench className="size-3 text-primary" />
+              <span className="truncate max-w-[220px]">
+                {activeStop.l2Category} › {activeStop.l3Reason}
+              </span>
+            </span>
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold border",
+                activeStop.source === "PLC"
+                  ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                  : "bg-muted text-muted-foreground border-border",
+              )}
+            >
+              {activeStop.source || "PLC"}
+            </span>
+          </div>
         ) : (
-          <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-destructive/15 text-destructive px-2 py-0.5 text-[10px] font-bold border border-destructive/30">
-            Awaiting reason
-          </span>
+          <div className="hidden sm:inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2.5 py-0.5 text-[10px] font-medium border border-border text-muted-foreground italic">
+              {NOT_TAGGED_LABEL}
+            </span>
+            <span className="rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold border border-border bg-muted text-muted-foreground">
+              {activeStop.source || "Non-PLC"}
+            </span>
+          </div>
         )}
 
         {/* Downstream effect chips */}
@@ -124,16 +147,6 @@ export function ActiveStopBanner({
           </div>
         )}
       </div>
-
-      {/* Right side: Clarify now action button */}
-      <button
-        type="button"
-        onClick={onClarifyNow}
-        className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-xs transition-all hover:bg-primary/90 cursor-pointer active:scale-95 shrink-0"
-      >
-        <span>Clarify now</span>
-        <ArrowRight className="size-3.5" />
-      </button>
     </div>
   );
 }

@@ -7,6 +7,7 @@
 import { SENSOR_SPEC, type LossCategory, type Status } from "./config";
 import { makeRng, pick, rand } from "./rng";
 import { J2_LINES_CONFIG, getDeterministicMachineStatus } from "./j2-layout-config";
+import { matchPlcAlarmCode } from "./lossTree";
 
 export type Machine = {
   id: string;
@@ -103,6 +104,10 @@ export type Plant = {
   metrics?: null | Record<string, unknown>;
 };
 
+export { MACHINE_OUTPUT_LABEL } from "./config";
+
+export type AlarmSource = "PLC" | "Non-PLC";
+
 export type Alarm = {
   id: string;
   lineId: string;
@@ -112,6 +117,13 @@ export type Alarm = {
   durationMinutes: number;
   status: "OCCURRING" | "Resolved";
   severity: "CRITICAL" | "HIGH" | "MEDIUM";
+  timestamp?: number;
+  zoneId?: string;
+  l2Category?: string;
+  l3Reason?: string;
+  source?: AlarmSource;
+  plcAlarmCode?: string;
+  isTagged?: boolean;
 };
 
 const MACHINE_TYPES = [
@@ -539,15 +551,21 @@ export function plantAlarms(plant: Plant): Alarm[] {
       if (l.status === "down" || l.status === "slow") {
         const m = l.machines[0];
         const seed = `${plant.id}-${l.id}-alarm`;
+        const issue = l.fault ?? "Pneumatic cylinder seal leak";
+        const match = matchPlcAlarmCode(issue);
         alarms.push({
           id: `${l.id}-1`,
           lineId: l.id,
           machineId: m?.id ?? "-",
-          issue: l.fault ?? "Speed below standard",
+          issue,
           start: pick(seed + "s", ["05:41", "06:12", "07:48", "09:05", "11:22", "13:26"]),
-          durationMinutes: rand(seed + "d", 8, 124, 0),
+          durationMinutes: Math.max(10, rand(seed + "d", 10, 124, 0)),
           status: l.status === "down" ? "OCCURRING" : "Resolved",
           severity: l.status === "down" ? "CRITICAL" : "MEDIUM",
+          source: match ? "PLC" : "Non-PLC",
+          l2Category: match ? match.l2CategoryName : "Not Tagged Yet",
+          l3Reason: match ? match.l3ReasonName : "Not Tagged Yet",
+          isTagged: Boolean(match),
         });
       }
     }),
@@ -566,15 +584,24 @@ export function lineAlarms(line: Line): Alarm[] {
       : (line.machines[0]?.id ?? "-");
 
   if (line.status === "down" || line.fault) {
+    const issue = line.fault || culprit?.currentStop?.fault || "Filler Error";
+    const match = matchPlcAlarmCode(issue);
     list.push({
       id: `${line.id}-active`,
       lineId: line.id,
       machineId: culpritMachineId,
-      issue: line.fault || culprit?.currentStop?.fault || "Machine breakdown stop",
+      issue,
       start: culprit?.currentStop?.startedAt || "06:12",
-      durationMinutes: culprit?.currentStop?.elapsedMinutes ?? rand(seed + "1", 12, 92, 0),
+      durationMinutes: Math.max(
+        10,
+        culprit?.currentStop?.elapsedMinutes ?? rand(seed + "1", 12, 92, 0),
+      ),
       status: "OCCURRING",
       severity: "CRITICAL",
+      source: match ? "PLC" : "Non-PLC",
+      l2Category: match ? match.l2CategoryName : "Not Tagged Yet",
+      l3Reason: match ? match.l3ReasonName : "Not Tagged Yet",
+      isTagged: Boolean(match),
     });
   }
 
@@ -582,15 +609,25 @@ export function lineAlarms(line: Line): Alarm[] {
   if (line.machines.length > 1) {
     const otherMachine =
       line.machines.find((m) => (m.code || m.id) !== culpritMachineId) || line.machines[1];
+    const issue = pick(seed + "i", [
+      "Air Hose Leakage",
+      "Carton Magazine Error",
+      "Mechanical drive failure",
+    ]);
+    const match = matchPlcAlarmCode(issue);
     list.push({
       id: `${line.id}-r1`,
       lineId: line.id,
       machineId: otherMachine?.code || otherMachine?.id || "-",
-      issue: pick(seed + "i", FAULTS),
+      issue,
       start: "04:55",
-      durationMinutes: rand(seed + "2", 4, 38, 0),
+      durationMinutes: Math.max(10, rand(seed + "2", 10, 38, 0)),
       status: "Resolved",
       severity: "MEDIUM",
+      source: match ? "PLC" : "Non-PLC",
+      l2Category: match ? match.l2CategoryName : "Not Tagged Yet",
+      l3Reason: match ? match.l3ReasonName : "Not Tagged Yet",
+      isTagged: Boolean(match),
     });
   }
   return list;
@@ -652,36 +689,123 @@ export type LossNode = {
 
 const LOSS_TREE_SHAPE: Record<string, Record<string, string[]>> = {
   Breakdown: {
-    "Bearing seizure": ["Lubrication missed", "Contamination"],
-    "Conveyor Jam": ["Guide misalignment", "Product overfeed"],
-    "Power Outage": ["Utility trip"],
+    "Filling System": [
+      "Filler Error",
+      "Filling Error",
+      "Nozzle Tailing",
+      "Filling Pump Sensor Error",
+      "Piston Pump Sensor Error",
+    ],
+    "Carton Handling": [
+      "Carton Magazine Error",
+      "Chute Transfer / Swivel Arm Jam",
+      "Carton Flap (Top & Bottom) Error",
+    ],
+    "Pneumatic System": ["Air Hose Leakage"],
+    "Sensor / Detection": [
+      "Ejector Error",
+      "Product Sensing Error",
+      "Screw Sensor Error",
+      "Min/Max Lead Sensor Error",
+      "Plug Sensor Error",
+    ],
+    "General Machine Breakdown": [
+      "Machine Breakdown",
+      "Piston Disassembly (O-Ring Contamination)",
+      "Unstable Net Weight",
+    ],
+    "Bulk / Material": ["Bulk Shortage", "Bulk Viscosity Above Standard", "Waiting for Bulk"],
+    "Tube Feeding": ["Tube Infeed Error", "Tube Magazine Error"],
+    "Turntable / Holder": ["Turntable & Holder Error"],
   },
   "Minor Stop": {
-    "Film splice": ["Roll end late", "Splice tape weak"],
-    "Sensor blocked": ["Dust build-up", "Reflector drift"],
-    "Cap jam": ["Cap orientation"],
+    "Carton Handling": [
+      "Bad Carton Not Ejected",
+      "Dedusting Alarm",
+      "Carton Flap (Top & Bottom) Error / Alarm",
+      "Carton Not Vacuumed / Dropped",
+      "Carton Stuck in Carton Sealer",
+    ],
+    "Filling System": [
+      "Filling Error",
+      "Unstable Net Weight",
+      "Nozzle Tailing",
+      "Filling Pump Sensor Error",
+      "Piston Pump Sensor Error",
+      "NPD Net Weight Setting",
+    ],
+    "Machine Performance": [
+      "Piston Disassembly (O-Ring Contamination)",
+      "Chute Transfer Error",
+      "FG Stuck in Robopacker",
+      "Flipper Error",
+      "Loose / Wobbly Orientation Gear",
+      "Carton Infeed Error",
+    ],
+    "Sensor / Detection": [
+      "DYN Sensor Alarm",
+      "Product Sensing Error",
+      "Screw Sensor Error",
+      "Bulk / Hopper Sensor Error",
+      "Eyemark Sensor Error",
+    ],
+    Sealing: [
+      "Seal Leakage",
+      "Seal Blistering",
+      "Skewed Seal",
+      "Seal Position Too High",
+      "Hooked Seal",
+    ],
   },
-  "Setup + Idle": {
-    "SKU changeover": ["Tooling search", "First-article wait"],
-    "Idle, no order": ["Plan gap"],
-    "Waiting material": ["Late supply", "QA hold"],
+  Setup: {
+    Changeover: ["Changeover & Setup"],
+    Checking: ["Setup Checking"],
+    Cleaning: ["General Cleaning", "Cleaning, Changeover & Setup", "Cleaning & Setup"],
+    "Loading Material": ["Material Loading"],
+    "Material Preparation": ["Water Weighing"],
+    "Setup Activity": ["Machine Setup"],
   },
   "Speed Loss": {
-    "Reduced speed setpoint": ["Operator derate", "Material variance"],
-    "Micro slowdowns": ["Air pressure dips"],
+    "Reduced Speed for Quality": [
+      "Slow run to prevent foaming",
+      "Slow run due to delicate packaging",
+      "Reduced speed during heat tunnel heating",
+      "Capper torque stabilization speed",
+    ],
+    "Line Balancing & Flow Constraints": [
+      "Downstream machine bottleneck throttling",
+      "Upstream supply starvation",
+      "Operator training pace",
+    ],
   },
   Reject: {
-    "Seal defect": ["Jaw temperature", "Film wrinkle"],
-    "Fill weight out of spec": ["Nozzle wear", "Product viscosity"],
-    "Print defect": ["Ribbon low"],
+    "Fill / Volume Rejection": [
+      "Underfilled bottle (< lower spec limit)",
+      "Overfilled bottle (> upper spec limit)",
+      "Nozzle splash / external contamination",
+    ],
+    "Capping / Seal Defect": [
+      "Canted / crooked cap",
+      "Loose cap (insufficient torque)",
+      "Stripped cap thread (over-torque)",
+      "Induction foil seal missing or incomplete",
+    ],
+    "Labelling & Code Defect": [
+      "Skewed / bubbled label",
+      "Missing expiry / batch inkjet code",
+      "Unreadable barcode scan",
+    ],
   },
   Rework: {
-    "Label reposition": ["Applicator drift"],
-    "Repack case": ["Case damage"],
+    "Packaging Rework": [
+      "Manual cap retorquing",
+      "Manual label removal and re-application",
+      "Carton repack due to damaged carton box",
+    ],
   },
   "Planned Downtime": {
-    "Preventive maintenance": ["Weekly PM"],
-    "Cleaning / sanitation": ["CIP cycle"],
+    "Breaks & Meetings": ["Line Clearance", "Break", "Briefing", "Pre-Shift Talk (Hello Time)"],
+    "Planned Maintenance": ["Autonomous Maintenance (AM)", "Preventive Maintenance (PM)"],
   },
 };
 
@@ -745,12 +869,10 @@ export function findNode(nodes: LossNode[], id: string): LossNode | undefined {
   return undefined;
 }
 
-/** Waterfall per BR 2.3.3 with the single label change "Unutilized" → "Idle, no order". */
+/** OEE Waterfall per standard cascading logic. */
 export function waterfall(scopeSeed: string) {
   const calendar = 1440;
   const unscheduled = rand(scopeSeed + "un", 120, 260, 0);
-  const idleNoOrder = rand(scopeSeed + "id", 40, 140, 0); // was "Unutilized"
-  const notAvailable = rand(scopeSeed + "na", 20, 70, 0);
   const planned = rand(scopeSeed + "pd", 30, 90, 0);
   const breakdown = rand(scopeSeed + "bd", 25, 130, 0);
   const setup = rand(scopeSeed + "st", 15, 75, 0);
@@ -759,10 +881,24 @@ export function waterfall(scopeSeed: string) {
   const reject = rand(scopeSeed + "rj", 8, 45, 0);
   const rework = rand(scopeSeed + "rw", 4, 26, 0);
 
-  const scheduled = calendar - unscheduled - notAvailable - planned;
-  const gross = scheduled - breakdown - idleNoOrder - setup;
-  const net = gross - minorStop - speedLoss;
-  const effective = net - reject - rework;
+  const losses = [
+    { label: "Unscheduled", value: unscheduled, group: "Loading" as const },
+    { label: "Planned Downtime", value: planned, group: "Loading" as const },
+    { label: "Breakdown", value: breakdown, group: "Availability" as const },
+    { label: "Setup", value: setup, group: "Availability" as const },
+    { label: "Minor Stop", value: minorStop, group: "Performance" as const },
+    { label: "Speed Loss", value: speedLoss, group: "Performance" as const },
+    { label: "Reject", value: reject, group: "Quality" as const },
+    { label: "Rework", value: rework, group: "Quality" as const },
+  ];
+
+  const sumGroup = (group: "Loading" | "Availability" | "Performance" | "Quality") =>
+    losses.filter((l) => l.group === group).reduce((sum, l) => sum + l.value, 0);
+
+  const scheduled = calendar - sumGroup("Loading");
+  const gross = scheduled - sumGroup("Availability");
+  const net = gross - sumGroup("Performance");
+  const effective = net - sumGroup("Quality");
 
   return {
     milestones: [
@@ -772,18 +908,7 @@ export function waterfall(scopeSeed: string) {
       { label: "Net Operating Time", value: net },
       { label: "Effective Time", value: effective },
     ],
-    losses: [
-      { label: "Unscheduled", value: unscheduled, group: "Loading" },
-      { label: "Not Available", value: notAvailable, group: "Loading" },
-      { label: "Planned Downtime", value: planned, group: "Loading" },
-      { label: "Breakdown", value: breakdown, group: "Availability" },
-      { label: "Idle, no order", value: idleNoOrder, group: "Availability" },
-      { label: "Setup", value: setup, group: "Availability" },
-      { label: "Minor Stop", value: minorStop, group: "Performance" },
-      { label: "Speed Loss", value: speedLoss, group: "Performance" },
-      { label: "Reject", value: reject, group: "Quality" },
-      { label: "Rework", value: rework, group: "Quality" },
-    ],
+    losses,
   };
 }
 
@@ -906,8 +1031,7 @@ export function getPriorPeriodKpis(scopeSeed: string, lines?: Line[]): PriorPeri
   const netOperatingTime = wf.milestones.find((m) => m.label === "Net Operating Time")?.value ?? 0;
   const effectiveTime = wf.milestones.find((m) => m.label === "Effective Time")?.value ?? 0;
 
-  const priorTree = lossTree(priorSeed);
-  const totalLossMinutes = priorTree.reduce((sum, n) => sum + n.minutes, 0);
+  const totalLossMinutes = wf.losses.reduce((sum, l) => sum + l.value, 0);
 
   const availabilityPct = scheduledTime > 0 ? (grossOperatingTime / scheduledTime) * 100 : 0;
   const performancePct = grossOperatingTime > 0 ? (netOperatingTime / grossOperatingTime) * 100 : 0;
@@ -980,10 +1104,14 @@ export type LossCategoryKind = "stop" | "event";
 export const CATEGORY_KIND_MAP: Record<string, LossCategoryKind> = {
   Breakdown: "stop",
   "Minor Stop": "stop",
+  Setup: "stop",
+  "Setup / Changeover": "stop",
   "Setup + Idle": "stop",
   "Planned Downtime": "stop",
+  Unscheduled: "stop",
   "Speed Loss": "event",
   Reject: "event",
+  "Scrap / Defect": "event",
   Rework: "event",
 };
 

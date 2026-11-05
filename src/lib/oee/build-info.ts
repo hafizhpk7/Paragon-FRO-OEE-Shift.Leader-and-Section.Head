@@ -1,6 +1,14 @@
-export const BUILD_ID = "r20 · 21 Oct 2026 09:10 WIB";
+export const BUILD_ID = "r24 · 05 Nov 2026 16:15 WIB";
 
 export const FEATURES = {
+  lossClarificationReadOnly: true,
+  machineOutputRename: true,
+  downtimeEventAlarms: true,
+  lossTreeMasterV2: true,
+  plcAlarmCodeMapping: true,
+  alarmTableL2L3Source: true,
+  waterfallKpiSync: true,
+  waterfallLossCleanup: true,
   dynamicPeriodAlarms: true,
   periodFilterNew: true,
   comparisonSingleRow: true,
@@ -14,7 +22,6 @@ export const FEATURES = {
   mpqTargetRemoved: true,
   machinesSectionRemoved: true,
   mttrMtbfRemoved: true,
-  lossMoveToClassified: true,
   analyticsKpiCleanup: true,
   round3ParitySelectors: true,
   round3DomParityAudit: true,
@@ -24,10 +31,7 @@ export const FEATURES = {
   upcomingPlantsKlangBatang: true,
   customRangeTime: true,
   customRangeCompareAllDay: true,
-  lossClarificationLookbackGate: true,
-  sectionHeadOnlyClassifiedEdit: true,
   lossCanonicalTimestamps: true,
-  lossActionGateFix: true,
   bop15Iso3D: true,
   bop15Iso3DIntegration: true,
   productionBlankScreenFix: true,

@@ -481,13 +481,17 @@ export const GroupSiteMap = React.memo(function GroupSiteMap({
       renderMarkers();
     });
 
+    let animFrame: number;
     const ro = new ResizeObserver(() => {
-      mapInstanceRef.current?.invalidateSize();
+      animFrame = requestAnimationFrame(() => {
+        mapInstanceRef.current?.invalidateSize();
+      });
     });
     ro.observe(container);
 
     return () => {
       isCancelled = true;
+      cancelAnimationFrame(animFrame);
       ro.disconnect();
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();

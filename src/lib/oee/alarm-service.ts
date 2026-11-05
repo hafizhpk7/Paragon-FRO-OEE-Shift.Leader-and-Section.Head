@@ -1,21 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { type Alarm, type Line, type Plant } from "@/lib/oee/data";
 import { type ResolvedPeriod } from "@/lib/oee/period";
-import { formatTimeWib, getWibNow } from "@/lib/oee/shiftClock";
-import { pick, rand } from "@/lib/oee/rng";
-
-const STANDARD_FAULTS = [
-  "Bearing seizure on main drive",
-  "Conveyor jam at infeed",
-  "Servo overload trip",
-  "Film splice sensor fault",
-  "Vacuum pressure low",
-  "Cartoner glue temperature low",
-  "Pneumatic cylinder seal leak",
-  "Safety gate interlock tripped",
-  "Bottle infeed track sensor fault",
-  "Outfeed reject bin full",
-];
+import { formatTimeWib, getWibNow, getShiftInfo } from "@/lib/oee/shiftClock";
+import { makeRng } from "@/lib/oee/rng";
+import { matchPlcAlarmCode, ALARM_L1_PARENTS } from "@/lib/oee/lossTree";
+import { getShiftTimeline, DOWNTIME_THRESHOLD_SEC } from "@/lib/oee/machineEvents";
 
 /**
  * Evaluates the period context to determine:
@@ -103,127 +92,128 @@ export function generateInitialAlarms({
 }): Alarm[] {
   const startMs = resolved.start.getTime();
   const endMs = resolved.end.getTime();
-  const nowMs = Date.now();
+  const shift = getShiftInfo();
+  const periodKey = resolved.periodKey;
 
   const lines: Line[] = line ? [line] : plant?.zones?.flatMap((z) => z.lines) || [];
   if (!lines.length) return [];
 
-  const entityKey = line ? `line-${line.id}` : `plant-${plant?.id || "p"}`;
+  const plantId = plant?.id || "J2";
+  const allDowntimeAlarms: Alarm[] = [];
 
-  // Case 1: HISTORICAL PERIOD (includesCurrentDay === false)
-  // Must be static, bounded within [startMs, endMs], all resolved, deterministic seed
-  if (!includesCurrentDay) {
-    const alarms: Alarm[] = [];
-    const durationSpan = Math.max(3600000, endMs - startMs);
-    const count = line
-      ? 3
-      : Math.min(8, Math.max(3, Math.floor(durationSpan / (24 * 3600000)) * 2 || 4));
+  // For each line, gather downtime events from its machines
+  for (const l of lines) {
+    for (const m of l.machines) {
+      const machineCode = m.code || m.id;
+      const timeline = getShiftTimeline(machineCode, shift, undefined, plantId, periodKey);
+
+      // Filter for downtime events (type === "downtime", duration >= 10 min / 600s)
+      // Minor stops (<10m), speed loss, planned events are strictly NOT alarms.
+      const downtimeEvents = timeline.events.filter(
+        (e) => e.type === "downtime" && e.durationSec >= DOWNTIME_THRESHOLD_SEC,
+      );
+
+      for (const e of downtimeEvents) {
+        // Must fall within period window if historical
+        if (!includesCurrentDay) {
+          if (e.startAt < startMs || e.startAt > endMs) {
+            continue;
+          }
+        }
+
+        const match = matchPlcAlarmCode(e.plcAlarm);
+        let source: "PLC" | "Non-PLC" = "Non-PLC";
+        let l2Category = "Not Tagged Yet";
+        let l3Reason = "Not Tagged Yet";
+        let isTagged = false;
+
+        if (match && ALARM_L1_PARENTS.includes(match.l1Parent)) {
+          source = "PLC";
+          l2Category = match.l2CategoryName;
+          l3Reason = match.l3ReasonName;
+          isTagged = true;
+        } else if (e.causes && e.causes.length > 0 && e.causes[0].l2CategoryName) {
+          source = "Non-PLC";
+          l2Category = e.causes[0].l2CategoryName;
+          l3Reason = e.causes[0].l3ReasonName;
+          isTagged = true;
+        } else {
+          source = "Non-PLC";
+          l2Category = "Not Tagged Yet";
+          l3Reason = "Not Tagged Yet";
+          isTagged = false;
+        }
+
+        const durationMinutes = Math.max(10, Math.round(e.durationSec / 60));
+        const isOccurring = Boolean(e.isOngoing && includesCurrentDay);
+
+        allDowntimeAlarms.push({
+          id: `${l.id}-${machineCode}-${e.id}`,
+          lineId: l.id,
+          machineId: machineCode,
+          issue: e.plcAlarm || e.note || "Unscheduled downtime stoppage",
+          timestamp: e.startAt,
+          start: formatAlarmTimestamp(e.startAt, isStrictlyToday),
+          durationMinutes,
+          status: isOccurring ? "OCCURRING" : "Resolved",
+          severity:
+            isOccurring || durationMinutes >= 30
+              ? "CRITICAL"
+              : durationMinutes >= 15
+                ? "HIGH"
+                : "MEDIUM",
+          l2Category,
+          l3Reason,
+          source,
+          plcAlarmCode: e.plcAlarm,
+          isTagged,
+        });
+      }
+    }
+  }
+
+  // Ensure deterministic fallback if no machine timeline produced a downtime event
+  if (allDowntimeAlarms.length === 0) {
+    const seed = `${line ? line.id : plantId}-${periodKey}-${startMs}`;
+    const rng = makeRng(seed);
+    const count = line ? 2 : Math.min(6, lines.length);
 
     for (let i = 0; i < count; i++) {
-      const seed = `${entityKey}-hist-${startMs}-${endMs}-${i}`;
       const l = lines[i % lines.length];
-      const frac = (i + 0.5) / count;
-      const jitter = (rand(seed + "j", 0, 100, 0) / 100 - 0.5) * (durationSpan / count) * 0.4;
-      const alarmTime = Math.min(
-        endMs - 120000,
-        Math.max(startMs + 60000, Math.floor(startMs + frac * durationSpan + jitter)),
-      );
-      const duration = rand(seed + "dur", 6, 85, 0);
       const m = l.machines[i % l.machines.length];
+      const machineCode = m?.code || m?.id || "LTF01";
+      const isOccurring =
+        includesCurrentDay && i === 0 && (l.status === "down" || l.status === "slow");
+      const duration = 12 + Math.floor(rng() * 35);
+      const alarmTime = isOccurring
+        ? Date.now() - duration * 60000
+        : Math.max(startMs + 60000, endMs - (i + 1) * (3600000 * 2));
 
-      alarms.push({
-        id: `${entityKey}-hist-${i}`,
+      // 50% mapped PLC, 50% Non-PLC untagged
+      const usePlc = rng() > 0.5;
+      const plcAlarm = usePlc ? "Air Hose Leakage" : undefined;
+      const match = matchPlcAlarmCode(plcAlarm);
+
+      allDowntimeAlarms.push({
+        id: `${l.id}-${machineCode}-dt-${i}`,
         lineId: l.id,
-        machineId: m?.code || m?.id || "-",
-        issue: pick(seed + "iss", STANDARD_FAULTS),
+        machineId: machineCode,
+        issue: plcAlarm || "Unscheduled downtime stoppage",
         timestamp: alarmTime,
         start: formatAlarmTimestamp(alarmTime, isStrictlyToday),
         durationMinutes: duration,
-        status: "Resolved",
-        severity: pick(seed + "sev", ["CRITICAL", "HIGH", "MEDIUM"] as const),
+        status: isOccurring ? "OCCURRING" : "Resolved",
+        severity: isOccurring ? "CRITICAL" : "MEDIUM",
+        source: match ? "PLC" : "Non-PLC",
+        l2Category: match ? match.l2CategoryName : "Not Tagged Yet",
+        l3Reason: match ? match.l3ReasonName : "Not Tagged Yet",
+        plcAlarmCode: plcAlarm,
+        isTagged: Boolean(match),
       });
     }
-
-    return alarms.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
   }
 
-  // Case 2: INCLUDES CURRENT DAY (Dynamic / Ongoing alarms possible)
-  const alarms: Alarm[] = [];
-
-  // Active / Occurring alarms
-  if (line) {
-    const seed = `${line.id}-la`;
-    const culprit = line.machines.find((m) => m.status === "down");
-    const culpritMachineId = culprit
-      ? culprit.code || culprit.id
-      : line.bottleneck && line.bottleneck !== "-"
-        ? line.bottleneck
-        : (line.machines[0]?.id ?? "-");
-
-    if (line.status === "down" || line.fault) {
-      const duration = culprit?.currentStop?.elapsedMinutes ?? rand(seed + "1", 12, 65, 0);
-      const alarmTime = nowMs - duration * 60000;
-      alarms.push({
-        id: `${line.id}-active`,
-        lineId: line.id,
-        machineId: culpritMachineId,
-        issue: line.fault || culprit?.currentStop?.fault || "Machine breakdown stop",
-        timestamp: alarmTime,
-        start: formatAlarmTimestamp(alarmTime, isStrictlyToday),
-        durationMinutes: duration,
-        status: "OCCURRING",
-        severity: "CRITICAL",
-      });
-    }
-
-    // Resolved alarm earlier in the period
-    if (line.machines.length > 1) {
-      const other =
-        line.machines.find((m) => (m.code || m.id) !== culpritMachineId) || line.machines[1];
-      const duration = rand(seed + "2", 8, 32, 0);
-      const earlierOffset = rand(seed + "off", 45, 180, 0) * 60000;
-      const alarmTime = Math.max(startMs + 60000, nowMs - earlierOffset);
-      alarms.push({
-        id: `${line.id}-r1`,
-        lineId: line.id,
-        machineId: other?.code || other?.id || "-",
-        issue: pick(seed + "i", STANDARD_FAULTS),
-        timestamp: alarmTime,
-        start: formatAlarmTimestamp(alarmTime, isStrictlyToday),
-        durationMinutes: duration,
-        status: "Resolved",
-        severity: "MEDIUM",
-      });
-    }
-  } else if (plant) {
-    plant.zones?.forEach((z) => {
-      z.lines.forEach((l) => {
-        if (l.status === "down" || l.status === "slow") {
-          const m = l.machines[0];
-          const seed = `${plant.id}-${l.id}-alarm`;
-          const isDown = l.status === "down";
-          const duration = rand(seed + "d", 10, 75, 0);
-          const alarmTime = isDown
-            ? nowMs - duration * 60000
-            : Math.max(startMs + 60000, nowMs - (duration + 45) * 60000);
-
-          alarms.push({
-            id: `${l.id}-live`,
-            lineId: l.id,
-            machineId: m?.id ?? "-",
-            issue: l.fault ?? pick(seed + "iss", STANDARD_FAULTS),
-            timestamp: alarmTime,
-            start: formatAlarmTimestamp(alarmTime, isStrictlyToday),
-            durationMinutes: duration,
-            status: isDown ? "OCCURRING" : "Resolved",
-            severity: isDown ? "CRITICAL" : "MEDIUM",
-          });
-        }
-      });
-    });
-  }
-
-  return alarms.sort((a, b) =>
+  return allDowntimeAlarms.sort((a, b) =>
     a.status === b.status
       ? (b.timestamp ?? 0) - (a.timestamp ?? 0)
       : a.status === "OCCURRING"

@@ -992,8 +992,11 @@ export class IsoScene {
   }
 
   private setupObservers(): void {
+    let animFrame: number;
     this.resizeObserver = new ResizeObserver(() => {
-      this.resize();
+      animFrame = requestAnimationFrame(() => {
+        this.resize();
+      });
     });
     this.resizeObserver.observe(this.container);
 

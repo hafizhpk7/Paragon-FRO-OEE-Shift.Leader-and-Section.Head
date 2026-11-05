@@ -12,7 +12,7 @@ import {
 } from "@/components/oee/iso";
 import { LineChainView3D } from "@/components/oee/three/line-chain-view-3d";
 import { Delta, EmptyState, KpiCard, PageHeader, Panel, StatusLegend } from "@/components/oee/ui";
-import { STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
+import { MACHINE_OUTPUT_LABEL, STATUS_HEX, STATUS_LABEL, TIER_HEX, tierOf } from "@/lib/oee/config";
 import { bucketsFor, getLine, getZone, trendSeries } from "@/lib/oee/data";
 import { LineAlarmsSection } from "@/components/oee/alarms-section";
 import { usePeriod } from "@/lib/oee/period";
@@ -160,7 +160,7 @@ function LineDetail() {
             delta={lineMetrics.deltaQuality}
           />
           <KpiCard
-            label="Output"
+            label={MACHINE_OUTPUT_LABEL}
             value={(lineMetrics.outputActual ?? 0).toLocaleString()}
             unit="pcs"
             caption={
@@ -264,7 +264,7 @@ function LineDetail() {
             </div>
           </Panel>
           <Panel
-            title="Output trend"
+            title="Machine Output trend"
             subtitle="Cumulative output vs plan (pcs)"
             className="h-[340px] w-full min-w-0"
             bodyClassName="h-[270px] w-full p-2"

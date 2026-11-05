@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { LossClarification } from "./LossClarification";
 import { MachineEvents } from "./MachineEvents";
 import type { ShiftInfo } from "@/lib/oee/shiftClock";
@@ -20,10 +20,9 @@ export interface LossStackProps {
   snapshot: ShiftSnapshot;
   selectedEventId: string | null;
   onSelectEventId: (id: string | null) => void;
-  selectedEventIds: string[];
-  onSelectEventIds: (ids: string[]) => void;
+  selectedEventIds?: string[];
+  onSelectEventIds?: (ids: string[]) => void;
   isLivePeriod?: boolean;
-  forcedFocus?: "loss" | "events" | null;
   resolved?: ResolvedPeriod;
   className?: string;
 }
@@ -41,11 +40,9 @@ export function LossStack({
   selectedEventIds,
   onSelectEventIds,
   isLivePeriod = true,
-  forcedFocus,
   resolved,
   className,
 }: LossStackProps) {
-  // First visit default: 'loss' if unclassified/ongoing exists, otherwise 'events' (§3.5)
   const [focus, setFocus] = useState<"loss" | "events">(() => {
     try {
       const saved = localStorage.getItem("fro-oee-machine-focus");
@@ -55,18 +52,6 @@ export function LossStack({
     }
     return snapshot.unclassifiedCount > 0 || snapshot.activeStop ? "loss" : "events";
   });
-
-  // Handle external focus triggers (e.g. from ActiveStopBanner "Clarify now")
-  useEffect(() => {
-    if (forcedFocus) {
-      setFocus(forcedFocus);
-      try {
-        localStorage.setItem("fro-oee-machine-focus", forcedFocus);
-      } catch {
-        // ignore
-      }
-    }
-  }, [forcedFocus]);
 
   const handleSetFocus = (target: "loss" | "events") => {
     setFocus(target);

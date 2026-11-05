@@ -11,7 +11,20 @@
 
 import { useSyncExternalStore } from "react";
 import { J2_LINES_CONFIG } from "./j2-layout-config";
-import { autoParent, componentOf, type LossComponent, type LossParent } from "./lossTree";
+import {
+  autoParent,
+  componentOf,
+  matchPlcAlarmCode,
+  ALARM_L1_PARENTS,
+  slugify,
+  type LossComponent,
+  type LossParent,
+} from "./lossTree";
+import {
+  NOT_TAGGED_LABEL,
+  resolveDowntimeClassification,
+  resolveEventClassification,
+} from "./plcAlarmMap";
 import { makeRng } from "./rng";
 import { formatTimeWib, getShiftInfo, SHIFT_SECONDS, type ShiftInfo } from "./shiftClock";
 import type { PeriodKey } from "./period";
@@ -50,10 +63,15 @@ export interface MachineEvent {
   sku: string;
   productName: string;
   isOngoing?: boolean;
-  source?: "PLC" | "Operator" | "You";
+  source?: "PLC" | "Non-PLC" | "Operator" | "You";
   causes: LossCause[];
   note?: string;
   causeMachineCode?: string;
+  isTagged?: boolean;
+  l0Component?: LossComponent;
+  l1Parent?: LossParent;
+  l2CategoryName?: string;
+  l3ReasonName?: string;
 }
 
 export interface ProductionOrder {
@@ -98,6 +116,7 @@ export interface ShiftSnapshot {
   mttrMin: number | null;
   mtbfMin: number | null;
   unclassifiedCount: number;
+  notTaggedCount: number;
   unclassifiedSec: number;
   status: {
     state: "running" | "slow" | "down" | "idle" | "off";
@@ -115,6 +134,10 @@ export interface ShiftSnapshot {
     downstreamMachines: string[];
     isClassified: boolean;
     lossBreadcrumb?: string;
+    source?: "PLC" | "Non-PLC";
+    l2Category?: string;
+    l3Reason?: string;
+    isTagged?: boolean;
   };
 }
 
@@ -173,25 +196,15 @@ export function getSavedClassifications(
   return result;
 }
 
-import { toast } from "sonner";
-import {
-  canEditClassified,
-  isItemEligible,
-  explainLossPolicy,
-  lossEventRegistry,
-} from "./lossClarificationPolicy";
-import type { Role } from "./app-context";
-
 /**
  * Normalizes event timestamps to ensure canonical absolute epoch milliseconds.
- * If startAt is non-finite, logs console.error and derives a fallback.
+ * If startAt is non-finite, derives a deterministic fallback.
  */
 export function normalizeEventTimestamps(event: MachineEvent, windowStartMs: number): MachineEvent {
   let startAt = event.startAt;
   let endAt = event.endAt;
 
   if (typeof startAt !== "number" || !Number.isFinite(startAt)) {
-    console.error(`[OEE] normalizeEventTimestamps: invalid startAt on event ${event.id}:`, startAt);
     startAt = windowStartMs + (Number.isFinite(event.startSec) ? event.startSec * 1000 : 0);
   }
 
@@ -205,212 +218,6 @@ export function normalizeEventTimestamps(event: MachineEvent, windowStartMs: num
     startAt,
     endAt,
   };
-}
-
-export function saveEventClassification(
-  shiftKey: string,
-  machineCode: string,
-  eventId: string,
-  causes: LossCause[],
-  note?: string,
-  causeMachineCode?: string,
-  role?: Role | string,
-  itemStartAt?: number, // Canonical absolute epoch milliseconds
-): { success: boolean; error?: string } {
-  const currentRole = (role ||
-    (typeof window !== "undefined" ? localStorage.getItem("paragon_oee_role") : null) ||
-    "section-head") as string;
-  const now = new Date();
-
-  // 1. Invariant: Valid canonical timestamp
-  if (itemStartAt === undefined || !Number.isFinite(itemStartAt)) {
-    console.error(
-      `[OEE] Cannot save: invalid or missing itemStartAt for event ${eventId}:`,
-      itemStartAt,
-    );
-    const explanation = explainLossPolicy(eventId, itemStartAt, false, currentRole, now);
-    console.warn("[OEE] Loss policy rejected action (invalid timestamp):", explanation);
-    toast.error("Cannot save: this loss has no valid start time");
-    return { success: false, error: "Cannot save: this loss has no valid start time" };
-  }
-
-  // 2. 7-day lookback gate: check isItemEligible
-  if (!isItemEligible(itemStartAt, now)) {
-    const explanation = explainLossPolicy(eventId, itemStartAt, false, currentRole, now);
-    console.warn("[OEE] Loss policy rejected action (out of range):", explanation);
-    toast.error("Only the last 7 days can be clarified");
-    return { success: false, error: "Only the last 7 days can be clarified" };
-  }
-
-  // 3. Role check: editing existing classified item requires canEditClassified
-  const existing = getSavedClassifications(shiftKey, machineCode);
-  const existingCauses = existing[eventId];
-  const isAlreadyClassified = existingCauses && existingCauses.length > 0;
-
-  if (isAlreadyClassified && !canEditClassified(currentRole)) {
-    const explanation = explainLossPolicy(eventId, itemStartAt, true, currentRole, now);
-    console.warn("[OEE] Loss policy rejected action (role denied):", explanation);
-    toast.error("Only Section Head can edit classified loss");
-    return { success: false, error: "Only Section Head can edit classified loss" };
-  }
-
-  const key = `fro-oee-loss:${shiftKey}:${machineCode}`;
-  existing[eventId] = causes;
-  try {
-    localStorage.setItem(key, JSON.stringify(existing));
-  } catch {
-    // fallback to memory
-  }
-  memoryClassificationStore.set(`${shiftKey}:${machineCode}:${eventId}`, causes);
-  notifyClassificationChanged();
-  return { success: true };
-}
-
-export interface BatchItemParam {
-  shiftKey: string;
-  eventId: string;
-  startAt: number;
-  durationSec: number;
-  type: EventType;
-  isOngoing?: boolean;
-  isAlreadyClassified?: boolean;
-}
-
-export interface BatchClassificationParams {
-  machineCode: string;
-  items: BatchItemParam[];
-  causeTemplate: {
-    l0Component: LossComponent;
-    l1Parent: LossParent;
-    l2CategoryId: string;
-    l2CategoryName: string;
-    l3ReasonId: string;
-    l3ReasonName: string;
-  };
-  note?: string;
-  causeMachineCode?: string;
-  role?: Role | string;
-  lockedType: EventType;
-}
-
-export function saveBatchClassification(params: BatchClassificationParams): {
-  success: boolean;
-  failures?: { eventId: string; reason: string }[];
-} {
-  const { machineCode, items, causeTemplate, note, causeMachineCode, role, lockedType } = params;
-  const currentRole = (role ||
-    (typeof window !== "undefined" ? localStorage.getItem("paragon_oee_role") : null) ||
-    "section-head") as string;
-  const now = new Date();
-  const failures: { eventId: string; reason: string }[] = [];
-
-  for (const item of items) {
-    if (item.startAt === undefined || !Number.isFinite(item.startAt)) {
-      failures.push({ eventId: item.eventId, reason: "Invalid or missing start time" });
-      continue;
-    }
-    if (!isItemEligible(item.startAt, now)) {
-      failures.push({ eventId: item.eventId, reason: "Outside 7-day lookback window" });
-      continue;
-    }
-    if (item.isOngoing) {
-      failures.push({ eventId: item.eventId, reason: "Ongoing stop cannot be grouped" });
-      continue;
-    }
-    if (item.type !== lockedType) {
-      failures.push({ eventId: item.eventId, reason: "Event type does not match group type" });
-      continue;
-    }
-    if (item.isAlreadyClassified && !canEditClassified(currentRole)) {
-      failures.push({
-        eventId: item.eventId,
-        reason: "Only Section Head can edit classified loss",
-      });
-      continue;
-    }
-  }
-
-  if (failures.length > 0) {
-    return { success: false, failures };
-  }
-
-  const groupId = `GRP-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-  const groupSize = items.length;
-  const groupedAt = Date.now();
-
-  const itemsByShift = new Map<string, BatchItemParam[]>();
-  for (const item of items) {
-    const list = itemsByShift.get(item.shiftKey) || [];
-    list.push(item);
-    itemsByShift.set(item.shiftKey, list);
-  }
-
-  const previousCausesMap: Record<string, Record<string, LossCause[]>> = {};
-
-  for (const [shiftKey, shiftItems] of itemsByShift.entries()) {
-    const existing = getSavedClassifications(shiftKey, machineCode);
-    previousCausesMap[shiftKey] = JSON.parse(JSON.stringify(existing));
-
-    for (const item of shiftItems) {
-      const causeId = `C-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const cause: LossCause = {
-        id: causeId,
-        durationSec: item.durationSec,
-        l0Component: causeTemplate.l0Component,
-        l1Parent: causeTemplate.l1Parent,
-        l2CategoryId: causeTemplate.l2CategoryId,
-        l2CategoryName: causeTemplate.l2CategoryName,
-        l3ReasonId: causeTemplate.l3ReasonId,
-        l3ReasonName: causeTemplate.l3ReasonName,
-        causeMachineCode: causeMachineCode || machineCode,
-        note: note || undefined,
-        groupId,
-        groupSize,
-        groupedBy: currentRole,
-        groupedAt,
-      };
-      existing[item.eventId] = [cause];
-    }
-
-    const key = `fro-oee-loss:${shiftKey}:${machineCode}`;
-    try {
-      localStorage.setItem(key, JSON.stringify(existing));
-    } catch {
-      // fallback
-    }
-    for (const item of shiftItems) {
-      memoryClassificationStore.set(
-        `${shiftKey}:${machineCode}:${item.eventId}`,
-        existing[item.eventId],
-      );
-    }
-  }
-
-  notifyClassificationChanged();
-
-  toast.success(`${groupSize} events clarified`, {
-    action: {
-      label: "Undo",
-      onClick: () => {
-        for (const [shiftKey, prevCauses] of Object.entries(previousCausesMap)) {
-          const key = `fro-oee-loss:${shiftKey}:${machineCode}`;
-          try {
-            localStorage.setItem(key, JSON.stringify(prevCauses));
-          } catch {
-            // fallback
-          }
-          for (const [eventId, causes] of Object.entries(prevCauses)) {
-            memoryClassificationStore.set(`${shiftKey}:${machineCode}:${eventId}`, causes);
-          }
-        }
-        notifyClassificationChanged();
-        toast.info("Batch clarification undone");
-      },
-    },
-    duration: 8000,
-  });
-
-  return { success: true };
 }
 
 /**
@@ -492,42 +299,42 @@ const SAMPLE_PRECLASSIFIED_REASONS = [
   {
     l0: "Availability" as LossComponent,
     l1: "Breakdown" as LossParent,
-    catId: "BKD-MCH",
-    catName: "Mechanical Failure",
-    reasonId: "R-MCH-04",
-    reasonName: "Pneumatic cylinder seal leak",
+    catId: "availability.breakdown.pneumatic-system",
+    catName: "Pneumatic System",
+    reasonId: "availability.breakdown.pneumatic-system.air-hose-leakage",
+    reasonName: "Air Hose Leakage",
   },
   {
     l0: "Performance" as LossComponent,
     l1: "Minor Stop" as LossParent,
-    catId: "MNR-JAM",
-    catName: "Intermittent Jam",
-    reasonId: "R-JAM-01",
-    reasonName: "Bottle fallen / tilted on infeed",
+    catId: "performance.minor-stop.sensor-detection",
+    catName: "Sensor / Detection",
+    reasonId: "performance.minor-stop.sensor-detection.product-sensing-error",
+    reasonName: "Product Sensing Error",
   },
   {
     l0: "Availability" as LossComponent,
     l1: "Breakdown" as LossParent,
-    catId: "BKD-ELE",
-    catName: "Electrical Failure",
-    reasonId: "R-ELE-02",
-    reasonName: "Optical sensor misalignment / dirt",
+    catId: "availability.breakdown.filling-system",
+    catName: "Filling System",
+    reasonId: "availability.breakdown.filling-system.filler-error",
+    reasonName: "Filler Error",
   },
   {
     l0: "Performance" as LossComponent,
     l1: "Speed Loss" as LossParent,
-    catId: "SPD-RAW",
-    catName: "Material Flow Variability",
-    reasonId: "R-SPD-01",
-    reasonName: "Viscosity fluctuation requiring speed derate",
+    catId: "performance.speed-loss.reduced-speed-for-quality",
+    catName: "Reduced Speed for Quality",
+    reasonId: "performance.speed-loss.reduced-speed-for-quality.slow-run-to-prevent-foaming",
+    reasonName: "Slow run to prevent foaming",
   },
   {
     l0: "Loading" as LossComponent,
     l1: "Planned Downtime" as LossParent,
-    catId: "PLN-CLN",
-    catName: "Sanitization & Cleaning",
-    reasonId: "R-CLN-01",
-    reasonName: "Line rinse & nozzle flush",
+    catId: "loading.planned-downtime.breaks-meetings",
+    catName: "Breaks & Meetings",
+    reasonId: "loading.planned-downtime.breaks-meetings.pre-shift-talk-hello-time",
+    reasonName: "Pre-Shift Talk (Hello Time)",
   },
 ];
 
@@ -606,10 +413,10 @@ export function getShiftTimeline(
             durationSec: 900,
             l0Component: "Loading",
             l1Parent: "Planned Downtime",
-            l2CategoryId: "PLN-BRK",
-            l2CategoryName: "Break & Rest Time",
-            l3ReasonId: "R-BRK-02",
-            l3ReasonName: "Shift handover & briefing",
+            l2CategoryId: "loading.planned-downtime.breaks-meetings",
+            l2CategoryName: "Breaks & Meetings",
+            l3ReasonId: "loading.planned-downtime.breaks-meetings.briefing",
+            l3ReasonName: "Briefing",
           },
         ],
       },
@@ -634,7 +441,17 @@ export function getShiftTimeline(
     if (rType < 0.2) {
       type = "downtime";
       durationSec = 660 + Math.floor(rng() * 900); // 11-25 mins
-      plcAlarm = "Pneumatic cylinder seal leak";
+      const downtimeFaults = [
+        "Filler Error",
+        "Piston Pump Sensor Error",
+        "Carton Magazine Error",
+        "Air Hose Leakage",
+        "Pusher Error",
+        "Conveyor jam at infeed",
+        "Mechanical drive failure",
+        undefined,
+      ];
+      plcAlarm = downtimeFaults[i % downtimeFaults.length];
     } else if (rType < 0.4) {
       type = "speed_loss";
       durationSec = 900 + Math.floor(rng() * 900); // 15-30 mins
@@ -642,7 +459,7 @@ export function getShiftTimeline(
     } else if (rType < 0.85) {
       type = "minor_stop";
       durationSec = 30 + Math.floor(rng() * 150); // 30-180s
-      plcAlarm = rng() > 0.5 ? "Infeed conveyor blockage" : undefined;
+      plcAlarm = rng() > 0.5 ? "Product Sensing Error" : undefined;
     } else {
       type = "planned";
       durationSec = 600 + Math.floor(rng() * 600);
@@ -651,25 +468,12 @@ export function getShiftTimeline(
     const endSec = Math.min(SHIFT_SECONDS, startSec + durationSec);
     const order = startSec >= 18000 ? orders[1] : orders[0];
 
-    // Pre-classify roughly 25% of events (every 4th item)
-    const isPreClassified = i % 4 === 0;
-    const sampleReason = SAMPLE_PRECLASSIFIED_REASONS[i % SAMPLE_PRECLASSIFIED_REASONS.length];
-
-    const causes: LossCause[] = isPreClassified
-      ? [
-          {
-            id: `C-${evId}-0`,
-            durationSec,
-            l0Component: sampleReason.l0,
-            l1Parent: sampleReason.l1,
-            l2CategoryId: sampleReason.catId,
-            l2CategoryName: sampleReason.catName,
-            l3ReasonId: sampleReason.reasonId,
-            l3ReasonName: sampleReason.reasonName,
-            causeMachineCode: machineCode,
-          },
-        ]
-      : [];
+    const resolved = resolveEventClassification(type, plcAlarm, evId, i);
+    const causes = resolved.causes.map((c) => ({
+      ...c,
+      durationSec,
+      causeMachineCode: machineCode,
+    }));
 
     rawEvents.push(
       normalizeEventTimestamps(
@@ -687,7 +491,12 @@ export function getShiftTimeline(
           orderId: order.id,
           sku: order.sku,
           productName: order.productName,
-          source: isPreClassified ? "PLC" : undefined,
+          source: resolved.source,
+          isTagged: resolved.isTagged,
+          l0Component: resolved.l0Component,
+          l1Parent: resolved.l1Parent,
+          l2CategoryName: resolved.l2CategoryName,
+          l3ReasonName: resolved.l3ReasonName,
           causes,
         },
         windowStartMs,
@@ -699,6 +508,15 @@ export function getShiftTimeline(
   if (revealSec < SHIFT_SECONDS && revealSec > 3600) {
     const ongoingStart = Math.max(1200, revealSec - 600);
     const ongoingId = `${plantId}-${machineCode}-EV-ONGOING`;
+    const ongoingDur = Math.max(30, revealSec - ongoingStart);
+    const ongoingType: EventType = ongoingDur >= DOWNTIME_THRESHOLD_SEC ? "downtime" : "minor_stop";
+    const ongoingAlarm = "Conveyor jam at infeed";
+    const resolved = resolveEventClassification(ongoingType, ongoingAlarm, ongoingId, 99);
+    const causes = resolved.causes.map((c) => ({
+      ...c,
+      durationSec: ongoingDur,
+      causeMachineCode: machineCode,
+    }));
     rawEvents.push(
       normalizeEventTimestamps(
         {
@@ -706,23 +524,29 @@ export function getShiftTimeline(
           machineCode,
           startSec: ongoingStart,
           endSec: revealSec,
-          durationSec: Math.max(30, revealSec - ongoingStart),
+          durationSec: ongoingDur,
           startAt: windowStartMs + ongoingStart * 1000,
           endAt: windowStartMs + revealSec * 1000,
-          type: "minor_stop",
+          type: ongoingType,
           orderId: ongoingStart >= 18000 ? "PO-2810" : "PO-2811",
           sku: ongoingStart >= 18000 ? orders[1].sku : orders[0].sku,
           productName: ongoingStart >= 18000 ? orders[1].productName : orders[0].productName,
-          plcAlarm: "Conveyor jam at infeed",
+          plcAlarm: ongoingAlarm,
           isOngoing: true,
-          causes: [],
+          source: resolved.source,
+          isTagged: resolved.isTagged,
+          l0Component: resolved.l0Component,
+          l1Parent: resolved.l1Parent,
+          l2CategoryName: resolved.l2CategoryName,
+          l3ReasonName: resolved.l3ReasonName,
+          causes,
         },
         windowStartMs,
       ),
     );
   }
 
-  // 3. Apply saved classifications from persistent store
+  // 3. Filter active events for current timeline
   const activeEvents = rawEvents
     .filter((e) => e.startSec < revealSec || periodKey !== "this-shift")
     .map((e) => {
@@ -734,8 +558,6 @@ export function getShiftTimeline(
         effType = "downtime";
       }
 
-      // Check if user has saved classifications for this event
-      const userCauses = savedClassifications[e.id];
       const baseEvent: MachineEvent = {
         ...e,
         endSec: effEnd,
@@ -743,13 +565,9 @@ export function getShiftTimeline(
         endAt: windowStartMs + effEnd * 1000,
         type: effType,
         isOngoing,
-        source: userCauses && userCauses.length > 0 ? ("You" as const) : e.source,
-        causes: userCauses && userCauses.length > 0 ? userCauses : e.causes,
       };
 
-      const normalized = normalizeEventTimestamps(baseEvent, windowStartMs);
-      lossEventRegistry.set(normalized.id, normalized);
-      return normalized;
+      return normalizeEventTimestamps(baseEvent, windowStartMs);
     });
 
   // 4. Generate 30s Timeline Windows (0..960)
@@ -793,8 +611,7 @@ export function getShiftTimeline(
 
     if (activeEv) {
       type = activeEv.type;
-      const classifiedSec = activeEv.causes.reduce((sum, c) => sum + c.durationSec, 0);
-      needsReason = type !== "run" && classifiedSec < activeEv.durationSec;
+      needsReason = type !== "run" && !activeEv.isTagged;
 
       if (type === "planned") {
         speedPpm = 0;
@@ -864,40 +681,40 @@ export function getShiftTimeline(
   const mtbfMin =
     stopsThisShift > 0 ? Math.round((sptSec - totalStopSec) / stopsThisShift / 60) : null;
 
-  const unclassifiedEvents = activeEvents.filter((e) => {
-    if (e.type === "run" || e.type === "planned") return false;
-    const classifiedSec = e.causes.reduce((sum, c) => sum + c.durationSec, 0);
-    return classifiedSec < e.durationSec;
-  });
-
-  const unclassifiedCount = unclassifiedEvents.length;
-  const unclassifiedSec = unclassifiedEvents.reduce((sum, e) => {
-    const classified = e.causes.reduce((cSum, c) => cSum + c.durationSec, 0);
-    return sum + Math.max(0, e.durationSec - classified);
-  }, 0);
+  const notTaggedEvents = activeEvents.filter((e) => e.type !== "run" && !e.isTagged);
+  const notTaggedCount = notTaggedEvents.length;
+  const unclassifiedCount = notTaggedCount;
+  const unclassifiedSec = notTaggedEvents.reduce((sum, e) => sum + e.durationSec, 0);
 
   // Active stop banner state
   const ongoingEvent = activeEvents.find((e) => e.isOngoing);
   let activeStop: ShiftSnapshot["activeStop"] = undefined;
 
   if (ongoingEvent) {
-    const isClassified =
-      ongoingEvent.causes.length > 0 &&
-      ongoingEvent.causes.reduce((sum, c) => sum + c.durationSec, 0) >= ongoingEvent.durationSec;
+    const isClassified = Boolean(
+      ongoingEvent.isTagged &&
+        ongoingEvent.l2CategoryName &&
+        ongoingEvent.l2CategoryName !== NOT_TAGGED_LABEL,
+    );
 
-    const lossBreadcrumb = isClassified
-      ? `${ongoingEvent.causes[0].l1Parent} › ${ongoingEvent.causes[0].l2CategoryName} › ${ongoingEvent.causes[0].l3ReasonName}`
-      : undefined;
+    const lossBreadcrumb =
+      isClassified && ongoingEvent.l2CategoryName
+        ? `${ongoingEvent.l1Parent} › ${ongoingEvent.l2CategoryName} › ${ongoingEvent.l3ReasonName}`
+        : undefined;
 
     activeStop = {
       event: ongoingEvent,
       severity: ongoingEvent.durationSec >= DOWNTIME_THRESHOLD_SEC ? "CRITICAL" : "WARNING",
-      fault: ongoingEvent.plcAlarm || "Unclassified Stop",
+      fault: ongoingEvent.plcAlarm || "Stop Occurring",
       startedAtTime: formatTimeWib(ongoingEvent.startSec),
       elapsedSec: ongoingEvent.durationSec,
       downstreamMachines: ["LBC01", "LCF01", "LSW01"],
       isClassified,
       lossBreadcrumb,
+      source: (ongoingEvent.source as "PLC" | "Non-PLC") || "Non-PLC",
+      l2Category: ongoingEvent.l2CategoryName || NOT_TAGGED_LABEL,
+      l3Reason: ongoingEvent.l3ReasonName || NOT_TAGGED_LABEL,
+      isTagged: ongoingEvent.isTagged,
     };
   }
 
@@ -951,6 +768,7 @@ export function getShiftTimeline(
     mttrMin,
     mtbfMin,
     unclassifiedCount,
+    notTaggedCount,
     unclassifiedSec,
     status: {
       state: statusState,

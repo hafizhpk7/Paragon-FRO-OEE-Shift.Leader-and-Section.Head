@@ -44,7 +44,7 @@ function LossTreePage() {
     const gross = wf.milestones.find((m) => m.label === "Gross Operating Time")?.value ?? 0;
     const net = wf.milestones.find((m) => m.label === "Net Operating Time")?.value ?? 0;
     const effective = wf.milestones.find((m) => m.label === "Effective Time")?.value ?? 0;
-    const totalLoss = tree.reduce((sum, n) => sum + n.minutes, 0);
+    const totalLoss = wf.losses.reduce((sum, item) => sum + item.value, 0);
 
     if (scheduled <= 0) {
       return [
@@ -121,7 +121,7 @@ function LossTreePage() {
         subText: `${currOeeFmt.toFixed(1)}% of scheduled time`,
       },
     ];
-  }, [wf, tree, scope.seed, compareLabel]);
+  }, [wf, scope.seed, compareLabel]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">

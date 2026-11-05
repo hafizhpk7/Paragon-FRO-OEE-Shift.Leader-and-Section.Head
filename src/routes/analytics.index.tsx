@@ -8,6 +8,7 @@ import { MetricDropdown, METRICS_ORDER, type MetricId } from "@/components/oee/m
 import { Delta, Donut, KpiCard, NoDataForFilters, PageHeader, Panel } from "@/components/oee/ui";
 import { useApp } from "@/lib/oee/app-context";
 import { biggestLoss, bucketsFor, comparison, type Point } from "@/lib/oee/data";
+import { MACHINE_OUTPUT_LABEL } from "@/lib/oee/config";
 import { RESOLUTIONS, SPANS } from "@/lib/oee/filters";
 import { rand } from "@/lib/oee/rng";
 import { useScope } from "@/lib/oee/scope";
@@ -130,7 +131,11 @@ function AnalyticsPage() {
             <KpiCard label="Quality" value={avg("quality").toFixed(1)} unit="%">
               <Sparkline data={spark(8)} />
             </KpiCard>
-            <KpiCard label="OUTPUT" value={goodOutput.toLocaleString()} unit="pcs" />
+            <KpiCard
+              label={MACHINE_OUTPUT_LABEL.toUpperCase()}
+              value={goodOutput.toLocaleString()}
+              unit="pcs"
+            />
             <KpiCard
               label="Biggest loss this week"
               value={loss.label}

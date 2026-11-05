@@ -15,6 +15,7 @@ import {
 import React, { useMemo, useState } from "react";
 
 import {
+  MACHINE_OUTPUT_LABEL,
   STATUS_HEX,
   STATUS_LABEL,
   TIER_HEX,
@@ -676,12 +677,17 @@ export function LineCard({
         })}
       </div>
 
-      {/* Line Footer: Output pace + Machine count */}
+      {/* Line Footer: Machine Output pace + Machine count */}
       <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/60">
-        <span className="font-mono">
-          Out: {line.outputActual.toLocaleString()} / {line.outputTarget.toLocaleString()}
+        <span
+          className="font-mono truncate"
+          title={`${MACHINE_OUTPUT_LABEL}: ${line.outputActual.toLocaleString()} / ${line.outputTarget.toLocaleString()}`}
+        >
+          <span className="hidden sm:inline">{MACHINE_OUTPUT_LABEL}: </span>
+          <span className="sm:hidden">Out: </span>
+          {line.outputActual.toLocaleString()} / {line.outputTarget.toLocaleString()}
         </span>
-        <span className="text-slate-400 font-medium">
+        <span className="text-slate-400 font-medium shrink-0 ml-1">
           {line.machines.length} {line.machines.length === 1 ? "unit" : "units"}
         </span>
       </div>

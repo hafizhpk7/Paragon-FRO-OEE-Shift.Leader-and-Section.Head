@@ -24,6 +24,7 @@ import { selectStatus } from "@/lib/oee/selectors";
 import { ActiveStopBanner } from "@/components/oee/loss/ActiveStopBanner";
 import { LossStack } from "@/components/oee/loss/LossStack";
 import { OperationalParametersTable } from "@/components/oee/loss/OperationalParametersTable";
+import { MACHINE_OUTPUT_LABEL } from "@/lib/oee/config";
 import { getLine, getMachine } from "@/lib/oee/data";
 import { usePeriod } from "@/lib/oee/period";
 import { getMetrics, useLiveTick } from "@/lib/oee/metrics-engine";
@@ -40,8 +41,6 @@ import {
   getShiftInfo,
   type ShiftInfo,
 } from "@/lib/oee/shiftClock";
-import { toast } from "sonner";
-import { isPeriodEligible } from "@/lib/oee/lossClarificationPolicy";
 import { cn } from "@/lib/utils";
 
 // Memoized 3D Machine Viewer to prevent Three.js scene remounting during 2s data ticks (§8)
@@ -77,7 +76,6 @@ function MachineDetail() {
   const classVer = useClassificationVersion();
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
-  const [forcedFocus, setForcedFocus] = useState<"loss" | "events" | null>(null);
 
   const line = getLine(plantId, zoneId, lineId);
   const machine = getMachine(plantId, zoneId, lineId, machineId);
@@ -134,21 +132,6 @@ function MachineDetail() {
       </div>
     );
   }
-
-  // Handle "Clarify now" click from Active Stop Banner
-  const handleClarifyNow = () => {
-    // If current period is not eligible for loss clarification, auto-switch to 'this-shift'
-    const now = new Date();
-    if (!isPeriodEligible(resolved, now)) {
-      setPeriodKey("this-shift");
-      toast.info("Period changed to This Shift to clarify the current stop");
-    }
-
-    if (snapshot.activeStop) {
-      setSelectedEventId(snapshot.activeStop.event.id);
-    }
-    setForcedFocus("loss");
-  };
 
   // Tone color and status single-source-of-truth for Status card, Twin badge and 3D scene (§2.3)
   const machineStatus = selectStatus(plantId, lineId, machine.id);
@@ -308,10 +291,10 @@ function MachineDetail() {
                 delta={machineMetrics.deltaQuality}
               />
 
-              {/* Card 5: Output (pcs) with sub-line Good X · Rejects Y */}
+              {/* Card 5: Machine Output (pcs) with sub-line Good X · Rejects Y */}
               <div className="flex flex-col justify-between rounded-lg border border-border bg-surface p-3 shadow-2xs">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Output
+                  {MACHINE_OUTPUT_LABEL}
                 </p>
                 <div className="my-1 flex items-baseline gap-1">
                   <span className="font-mono text-xl sm:text-2xl font-bold tracking-tight text-foreground">
@@ -361,7 +344,6 @@ function MachineDetail() {
               lineId={line.id}
               machineCode={machine.id}
               snapshot={snapshot}
-              onClarifyNow={handleClarifyNow}
             />
 
             {/* 3.5 & 3.8 LOSS STACK (Accordion between Loss Clarification & Machine Events) */}
@@ -378,7 +360,6 @@ function MachineDetail() {
               selectedEventIds={selectedEventIds}
               onSelectEventIds={setSelectedEventIds}
               isLivePeriod={resolved.periodKey === "this-shift"}
-              forcedFocus={forcedFocus}
               resolved={resolved}
             />
           </div>

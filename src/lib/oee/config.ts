@@ -4,6 +4,8 @@
  * (§7 point 6) — product team has not finalised them. Edit here, nowhere else.
  */
 
+export const MACHINE_OUTPUT_LABEL = "Machine Output";
+
 export const OEE_TIERS = {
   good: 75, // >= good  -> green
   warn: 65, // >= warn   -> orange
